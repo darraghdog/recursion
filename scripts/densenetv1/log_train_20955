@@ -1,0 +1,76 @@
+Sender: LSF System <lsfadmin@dbslp1896>
+Subject: Job 20955: <sh -c "cd /share/dhanley2/recursion/scripts/densenetv1  && python3 train.py --epochs 30             --lr 0.001 --batchsize 16 --workpath scripts/densenetv1 --weightsname pytorch_model_densenet.bin"> in cluster <osfi_hpc> Exited
+
+Job <sh -c "cd /share/dhanley2/recursion/scripts/densenetv1  && python3 train.py --epochs 30             --lr 0.001 --batchsize 16 --workpath scripts/densenetv1 --weightsname pytorch_model_densenet.bin"> was submitted from host <dbslp1204> by user <dhanley2> in cluster <osfi_hpc> at Wed Jul  3 19:56:07 2019
+Job was executed on host(s) <dbslp1896>, in queue <lowpriority>, as user <dhanley2> in cluster <osfi_hpc> at Wed Jul  3 19:56:07 2019
+</home/dhanley2> was used as the home directory.
+</mnt/lsf/share/dhanley2/recursion/scripts/densenetv1> was used as the working directory.
+Started at Wed Jul  3 19:56:07 2019
+Terminated at Wed Jul  3 19:56:19 2019
+Results reported at Wed Jul  3 19:56:19 2019
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+sh -c "cd /share/dhanley2/recursion/scripts/densenetv1  && python3 train.py --epochs 30             --lr 0.001 --batchsize 16 --workpath scripts/densenetv1 --weightsname pytorch_model_densenet.bin"
+------------------------------------------------------------
+
+Exited with exit code 1.
+
+Resource usage summary:
+
+    CPU time :                                   11.38 sec.
+    Max Memory :                                 1607 MB
+    Average Memory :                             850.83 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   -
+    Max Processes :                              5
+    Max Threads :                                57
+    Run time :                                   13 sec.
+    Turnaround time :                            12 sec.
+
+The output (if any) follows:
+
+2019-07-03 19:56:09,779 - Recursion-pytorch - INFO - Cuda set up : time 19:56:09.779684
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - Device : Tesla V100-SXM2-16GB
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - Cuda available : True
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - Cuda n_gpus : 1
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - Load params : time 19:56:09.821215
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - seed                1234
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - nsplits             3
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - epochs              30
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - batchsize           16
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - rootpath            /share/dhanley2/recursion/
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - workpath            scripts/densenetv1
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - weightsname         pytorch_model_densenet.bin
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - customwt            1.0
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - lr                  0.001
+2019-07-03 19:56:09,821 - Recursion-pytorch - INFO - Create image loader : time 19:56:09.821667
+2019-07-03 19:56:09,975 - Recursion-pytorch - INFO - Set up model : time 19:56:09.975859
+Downloading: "https://download.pytorch.org/models/densenet121-a639ec97.pth" to /home/dhanley2/.cache/torch/checkpoints/densenet121-a639ec97.pth
+  0%|          | 0/32342954 [00:00<?, ?it/s]  0%|          | 81920/32342954 [00:00<00:43, 742090.14it/s]  1%|          | 294912/32342954 [00:00<00:34, 921394.97it/s]  3%|2         | 835584/32342954 [00:00<00:25, 1226579.01it/s]  5%|5         | 1703936/32342954 [00:00<00:18, 1651751.21it/s]  8%|7         | 2555904/32342954 [00:00<00:13, 2175937.39it/s] 10%|#         | 3325952/32342954 [00:00<00:10, 2766985.57it/s] 13%|#3        | 4210688/32342954 [00:00<00:08, 3481934.11it/s] 16%|#5        | 5079040/32342954 [00:00<00:06, 4243358.60it/s] 18%|#8        | 5947392/32342954 [00:00<00:05, 4993995.32it/s] 21%|##1       | 6815744/32342954 [00:01<00:04, 5713389.66it/s] 24%|##3       | 7684096/32342954 [00:01<00:03, 6340224.44it/s] 26%|##6       | 8552448/32342954 [00:01<00:03, 6896654.18it/s] 29%|##9       | 9420800/32342954 [00:01<00:03, 7328801.17it/s] 32%|###1      | 10305536/32342954 [00:01<00:02, 7672830.37it/s] 35%|###4      | 11173888/32342954 [00:01<00:02, 7896126.28it/s] 37%|###7      | 12042240/32342954 [00:01<00:02, 8046757.54it/s] 40%|###9      | 12910592/32342954 [00:01<00:02, 8215724.40it/s] 43%|####2     | 13778944/32342954 [00:01<00:02, 8299762.75it/s] 45%|####5     | 14630912/32342954 [00:01<00:02, 8285473.75it/s] 48%|####7     | 15491072/32342954 [00:02<00:02, 8338589.18it/s] 51%|#####     | 16343040/32342954 [00:02<00:01, 8388122.06it/s] 53%|#####3    | 17195008/32342954 [00:02<00:01, 8404722.10it/s] 56%|#####5    | 18063360/32342954 [00:02<00:01, 8469001.68it/s] 59%|#####8    | 18931712/32342954 [00:02<00:01, 8505041.67it/s] 61%|######1   | 19800064/32342954 [00:02<00:01, 8482544.30it/s] 64%|######3   | 20668416/32342954 [00:02<00:01, 8521829.64it/s] 67%|######6   | 21528576/32342954 [00:02<00:01, 8544866.61it/s] 69%|######9   | 22388736/32342954 [00:02<00:01, 8496264.55it/s] 72%|#######1  | 23265280/32342954 [00:02<00:01, 8574061.66it/s] 75%|#######4  | 24125440/32342954 [00:03<00:00, 8542904.39it/s] 77%|#######7  | 24985600/32342954 [00:03<00:00, 8528323.10it/s] 80%|#######9  | 25845760/32342954 [00:03<00:00, 8535460.97it/s] 83%|########2 | 26705920/32342954 [00:03<00:00, 8461212.97it/s] 85%|########5 | 27566080/32342954 [00:03<00:00, 8500792.38it/s] 88%|########7 | 28434432/32342954 [00:03<00:00, 8517917.09it/s] 91%|######### | 29319168/32342954 [00:03<00:00, 8508656.45it/s] 93%|#########3| 30187520/32342954 [00:03<00:00, 8519034.65it/s] 96%|#########5| 31047680/32342954 [00:03<00:00, 8099928.92it/s] 99%|#########8| 31891456/32342954 [00:03<00:00, 8179782.53it/s]100%|##########| 32342954/32342954 [00:04<00:00, 8015054.82it/s]
+2019-07-03 19:56:17,780 - Recursion-pytorch - INFO - Start training : time 19:56:17.780285
+Traceback (most recent call last):
+  File "train.py", line 169, in <module>
+    for x, y in loader: 
+  File "/opt/conda/lib/python3.6/site-packages/torch/utils/data/dataloader.py", line 582, in __next__
+    return self._process_next_batch(batch)
+  File "/opt/conda/lib/python3.6/site-packages/torch/utils/data/dataloader.py", line 608, in _process_next_batch
+    raise batch.exc_type(batch.exc_msg)
+FileNotFoundError: Traceback (most recent call last):
+  File "/opt/conda/lib/python3.6/site-packages/torch/utils/data/_utils/worker.py", line 99, in _worker_loop
+    samples = collate_fn([dataset[i] for i in batch_indices])
+  File "/opt/conda/lib/python3.6/site-packages/torch/utils/data/_utils/worker.py", line 99, in <listcomp>
+    samples = collate_fn([dataset[i] for i in batch_indices])
+  File "train.py", line 94, in __getitem__
+    img = torch.cat([self._load_img_as_tensor(img_path) for img_path in paths])
+  File "train.py", line 94, in <listcomp>
+    img = torch.cat([self._load_img_as_tensor(img_path) for img_path in paths])
+  File "train.py", line 85, in _load_img_as_tensor
+    with Image.open(file_name) as img:
+  File "/opt/conda/lib/python3.6/site-packages/PIL/Image.py", line 2652, in open
+    fp = builtins.open(filename, "rb")
+FileNotFoundError: [Errno 2] No such file or directory: '/share/dhanley2/recursion/data/train/HUVEC-11/Plate3/L20_s1_w6.png'
+

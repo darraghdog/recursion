@@ -33,6 +33,8 @@ parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="roo
 parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Working path", default="densenetv1/weights")
 parser.add_option('-f', '--weightsname', action="store", dest="weightsname", help="Weights file name", default="pytorch_model.bin")
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
+parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate", default="0.00003")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
