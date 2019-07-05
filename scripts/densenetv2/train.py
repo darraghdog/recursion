@@ -140,19 +140,24 @@ class DensNet(nn.Module):
 @torch.no_grad()
 def prediction(model, loader):
     preds = np.empty(0)
+    probs = []
     for x, _ in loader:
         x = x.to(device)
         output = model(x)
         idx = output.max(dim=-1)[1].cpu().numpy()
+        outmat = torch.sigmoid(output.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
-    return preds
+        probs.append(outmat)
+    probs = np.concatenate(probs, 0)
+    print(probs.shape)    
+    return preds, probs
 
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
-train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv' )).iloc[:200]
+train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv' ))#.iloc[:3000]
 testdf  = pd.read_csv( os.path.join( path_data, 'test.csv' ))
 cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 trn_ids, val_ids = next(cv.split(train_dfall))
@@ -160,6 +165,7 @@ trn_ids, val_ids = next(cv.split(train_dfall))
 logger.info('Split Dataframes : time {}'.format(datetime.datetime.now().time()))
 traindf = train_dfall.loc[trn_ids]
 validdf = train_dfall.loc[val_ids]
+y_val = validdf.sirna.values
 
 ds = ImagesDS(traindf, path_data)
 ds_val = ImagesDS(validdf, path_data, mode='train')
@@ -208,13 +214,13 @@ for epoch in range(EPOCHS):
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
     model.eval()
-    preds = prediction(model, vloader)
-    print(preds[:10])
-
-
+    preds, probs = prediction(model, vloader)
+    matches = (preds.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum() 
+    print('Matches : {}'.format(matches))
+    print('Accuracy : {}'.format(matches/preds.shape[0])) 
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
-preds = prediction(model, tloader)
+preds, _ = prediction(model, tloader)
 
 submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = preds.astype(int)
