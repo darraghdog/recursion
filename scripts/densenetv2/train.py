@@ -157,8 +157,8 @@ if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
-train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv' ))#.iloc[:3000]
-testdf  = pd.read_csv( os.path.join( path_data, 'test.csv' ))
+train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv' ))#.iloc[:200]
+testdf  = pd.read_csv( os.path.join( path_data, 'test.csv' ))#.iloc[:500]
 cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 trn_ids, val_ids = next(cv.split(train_dfall))
 
@@ -192,6 +192,9 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
 tlen = len(loader)
+probsls = []
+probststls = []
+subm_bags = 5
 for epoch in range(EPOCHS):
     tloss = 0
     model.train()
@@ -210,7 +213,8 @@ for epoch in range(EPOCHS):
         del loss, output, y, x, target
     
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    torch.save(model.state_dict(), output_model_file)
+    #if epoch %5==0:
+    #    torch.save(model.state_dict(), output_model_file)
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
     model.eval()
@@ -218,10 +222,22 @@ for epoch in range(EPOCHS):
     matches = (preds.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum() 
     print('Matches : {}'.format(matches))
     print('Accuracy : {}'.format(matches/preds.shape[0])) 
+    probsls.append(probs)
+    probsbag = sum(probsls[-5:])/len(probsls[-5:])
+    predsbag = np.argmax(probsbag, 1)
+    print(predsbag[:5])
+    matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
+    print('Matches bag five : {}'.format(matchesbag))
+    print('Accuracy bag five : {}'.format(matchesbag/preds.shape[0]))
+    if (1+subm_bags+epoch)>EPOCHS:
+        print('Submission Predictions Bag {}'.format(1+len(probststls)))
+        preds, probs = prediction(model, tloader)
+        probststls.append(probs)
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
-preds, _ = prediction(model, tloader)
-
+#preds, _ = prediction(model, tloader)
+probsbag = sum(probststls)/len(probststls)
+predsbag = np.argmax(probsbag, 1)
 submission = pd.read_csv(path_data + '/test.csv')
-submission['sirna'] = preds.astype(int)
+submission['sirna'] = predsbag.astype(int)
 submission.to_csv('submission.csv', index=False, columns=['id_code','sirna'])

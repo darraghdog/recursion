@@ -221,7 +221,7 @@ vloader = D.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers
 tloader = D.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=2)
 
 criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+#optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
 tlen = len(loader)
@@ -232,6 +232,9 @@ for epoch in range(EPOCHS):
     tloss = 0
     model.train()
     acc = np.zeros(1)
+    '''
+    lr = .001
+    '''
     lr = 30e-5
     if epoch > 25:
         lr = 15e-5

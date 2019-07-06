@@ -11,7 +11,9 @@ import torch
 import torch.nn as nn
 import torch.utils.data as D
 import torch.nn.functional as F
+from sklearn.model_selection import KFold
 
+import random
 import logging
 import datetime
 
@@ -69,10 +71,21 @@ n_splits = int(options.nsplits)
 classes = 1108
 device = 'cuda'
 
+
+def random_flip(img, seed = 0):
+    random.seed(seed)
+    flipud_flag=bool(random.randint(0,1))
+    fliplr_flag = bool(random.randint(0, 1))
+    if flipud_flag:
+        img=np.flipud(img)
+    if fliplr_flag:
+        img=np.fliplr(img)
+    return img
+
 class ImagesDS(D.Dataset):
-    def __init__(self, csv_file, img_dir, mode='train', site=1, channels=[1,2,3,4,5,6]):
+    def __init__(self, df, img_dir, mode='train', site=1, channels=[1,2,3,4,5,6]):
         
-        df = pd.read_csv(csv_file).iloc[:50]
+        #df = pd.read_csv(csv_file)
         self.records = df.to_records(index=False)
         self.channels = channels
         self.site = site
@@ -81,17 +94,21 @@ class ImagesDS(D.Dataset):
         self.len = df.shape[0]
         
     @staticmethod
-    def _load_img_as_tensor(file_name):
+    def _load_img_as_tensor(file_name, seed):
         with Image.open(file_name) as img:
+            img = np.array(img)
+            img = random_flip(img, seed)
+            img = Image.fromarray(img)
             return T.ToTensor()(img)
-
+    
     def _get_img_path(self, index, channel):
         experiment, well, plate = self.records[index].experiment, self.records[index].well, self.records[index].plate
         return '/'.join([self.img_dir,self.mode,experiment,f'Plate{plate}',f'{well}_s{self.site}_w{channel}.png'])
         
     def __getitem__(self, index):
+        seed = random.randint(1,10000)
         paths = [self._get_img_path(index, ch) for ch in self.channels]
-        img = torch.cat([self._load_img_as_tensor(img_path) for img_path in paths])
+        img = torch.cat([self._load_img_as_tensor(img_path, seed) for img_path in paths])
         
         if self.mode == 'train':
             return img, self.records[index].sirna
@@ -103,6 +120,7 @@ class ImagesDS(D.Dataset):
         Total number of samples in the dataset
         """
         return self.len
+
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -136,11 +154,39 @@ class DensNet(nn.Module):
         out = self.classifier(out)
         return out
 
+@torch.no_grad()
+def prediction(model, loader):
+    preds = np.empty(0)
+    probs = []
+    for x, _ in loader:
+        x = x.to(device)
+        output = model(x)
+        idx = output.max(dim=-1)[1].cpu().numpy()
+        outmat = torch.sigmoid(output.cpu()).numpy()
+        preds = np.append(preds, idx, axis=0)
+        probs.append(outmat)
+    probs = np.concatenate(probs, 0)
+    print(probs.shape)    
+    return preds, probs
+
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
-ds = ImagesDS(os.path.join(path_data, 'train.csv'), path_data)
-ds_test = ImagesDS(os.path.join(path_data, 'test.csv'), path_data, mode='test')
+
+logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
+train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
+testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
+cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+trn_ids, val_ids = next(cv.split(train_dfall))
+
+logger.info('Split Dataframes : time {}'.format(datetime.datetime.now().time()))
+traindf = train_dfall.loc[trn_ids]
+validdf = train_dfall.loc[val_ids]
+y_val = validdf.sirna.values
+
+ds = ImagesDS(traindf, path_data)
+ds_val = ImagesDS(validdf, path_data, mode='train')
+ds_test = ImagesDS(testdf, path_data, mode='test')
 
 logger.info('Set up model : time {}'.format(datetime.datetime.now().time()))
 
@@ -155,16 +201,18 @@ model = DensNet(num_classes=classes)
 model.to(device)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=2)
+vloader = D.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=2)
 tloader = D.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=2)
 
 criterion = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
-
 tlen = len(loader)
+probsls = []
 for epoch in range(EPOCHS):
     tloss = 0
+    model.train()
     acc = np.zeros(1)
     for x, y in loader: 
         x = x.to(device)
@@ -180,23 +228,26 @@ for epoch in range(EPOCHS):
         del loss, output, y, x, target
     
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    torch.save(model.state_dict(), output_model_file)
+    if epoch %5==0:
+        torch.save(model.state_dict(), output_model_file)
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
+    model.eval()
+    preds, probs = prediction(model, vloader)
+    matches = (preds.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum() 
+    print('Matches : {}'.format(matches))
+    print('Accuracy : {}'.format(matches/preds.shape[0])) 
+    probsls.append(probs)
+    probsbag = sum(probsls[-5:])/len(probsls[-5:])
+    predsbag = np.argmax(probsbag, 1)
+    print(predsbag[:5])
+    matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
+    print('Matches bag five : {}'.format(matchesbag))
+    print('Accuracy bag five : {}'.format(matchesbag/preds.shape[0]))
 
 
-
-@torch.no_grad()
-def prediction(model, loader):
-    preds = np.empty(0)
-    for x, _ in loader: 
-        x = x.to(device)
-        output = model(x)
-        idx = output.max(dim=-1)[1].cpu().numpy()
-        preds = np.append(preds, idx, axis=0)
-    return preds
-
-preds = prediction(model, tloader)
+logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
+preds, _ = prediction(model, tloader)
 
 submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = preds.astype(int)
