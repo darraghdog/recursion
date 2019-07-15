@@ -38,6 +38,7 @@ parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Wor
 parser.add_option('-f', '--weightsname', action="store", dest="weightsname", help="Weights file name", default="pytorch_model.bin")
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
 parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate", default="0.00003")
+parser.add_option('-z', '--size', action="store", dest="size", help="Image size", default="512")
 
 
 options, args = parser.parse_args()
@@ -69,6 +70,7 @@ batch_size = int(options.batchsize)
 ROOT = options.rootpath
 path_data = os.path.join(ROOT, "data")
 WORK_DIR = os.path.join(ROOT, options.workpath)
+SIZE = int(options.size)
 WEIGHTS_NAME = options.weightsname
 fold = int(options.fold)
 nbags= int(options.nbags)
@@ -100,6 +102,7 @@ class ImagesDS(D.Dataset):
     @staticmethod
     def _load_img_as_tensor(file_name, seed, mean_, sd_):
         with Image.open(file_name) as img:
+            img = T.Resize((SIZE, SIZE), interpolation=2) (img)
             img = np.array(img)
             img = random_flip(img, seed)
             img = Image.fromarray(img)
