@@ -65,20 +65,20 @@ root_train = os.path.join(options.datapath, 'train') + '/'
 root_test = os.path.join(options.datapath, 'test') + '/'
 image_train = os.path.join(options.rootpath, options.targetpath, 'train') +'/'
 image_test = os.path.join(options.rootpath, options.targetpath, 'test') + '/'
-foldsfile = os.path.join(options.datapath, options.foldsfile)
-normfile = os.path.join(options.datapath, options.normfile)
+foldsfile = os.path.join(options.rootpath, 'data', options.foldsfile)
+normfile = os.path.join(options.rootpath, 'data', options.normfile)
 MODEL_PATH = os.path.join(options.rootpath, options.modelpath)
 SEED = int(options.seed)
 EPOCHS  = int(options.epochs)
 FOLD = int(options.fold)
 ACCUM = int(options.accum)
-TYPE = int(options.type)
+TYPE = options.exptype
 BATCHSIZE = int(options.batchsize)
 
-print(root_train)
-print(root_test)
-print(target_train)
-print(target_test)
+#print(root_train)
+#print(root_test)
+#print(target_train)
+#print(target_test)
 
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = args['gpu']
@@ -353,7 +353,7 @@ opt =TrainOptions()
 epochs = EPOCHS
 
 
-
+logger.info('Import cgan: time {}'.format(datetime.datetime.now().time()))
 from repos.cyclegan.models.cycle_gan_model import CycleGANModel
 
 with open(normfile,'rb') as f:
@@ -371,6 +371,7 @@ A_exp = a
 
 #'02',
 B_exps = [e for e in es if not e == a]
+logger.info('start training: time {}'.format(datetime.datetime.now().time()))
 
 for B_exp in B_exps:
 
@@ -390,6 +391,7 @@ for B_exp in B_exps:
     m = CycleGANModel(opt)
 
     for e in range(epochs):
+        logger.info('Epoch {}: time {}'.format(e, datetime.datetime.now().time()))
         dl = CGAN_Dataloader(A_dl, B_dl)
         dl_iter = iter(dl)
 
@@ -408,6 +410,7 @@ for B_exp in B_exps:
             # print(tloss)
         print(tlosses)
 
+    logger.info('Save Network: time {}'.format(datetime.datetime.now().time()))
     #MODEL_PATH = 'models/normalization/cycle_gan/256/1/'
     SUB_DIR1 = cell + '/'
     SUB_DIR2 = A_exp + '-' + B_exp + '/'
@@ -420,7 +423,7 @@ for B_exp in B_exps:
         x_fake = m.netG_B(torch.from_numpy(x).cuda())
         x_fake = x_fake.cpu().data.numpy()
         return x_fake
-
+    logger.info('Save GANS as image  : time {}'.format(datetime.datetime.now().time()))
     # save normalizations
     B_dl.set_gen(batch_size=1,shuffle=False,cast_x=apply_gan )
     new_fns = [image_train + '/' + '/'.join(fp.split('/')[3:]) for fp in B_dl.fns]
