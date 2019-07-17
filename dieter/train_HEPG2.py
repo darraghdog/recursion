@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 import tensorflow as tf
 import optparse
-!pip install albumentations
+#!pip install albumentations
 import albumentations as A
 import torch
 import random
@@ -21,10 +21,21 @@ import pickle
 # Print info about environments
 parser = optparse.OptionParser()
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion")
-parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/share/dhanley2/recursion/data")
-parser.add_option('-o', '--targetpath', action="store", dest="targetpath", help="root directory", default="/share/dhanley2/recursion/data/128X128X3")
+parser.add_option('-d', '--targetpath', action="store", dest="targetpath", help="root directory", default="/share/dhanley2/recursion/data/cgan/")
+parser.add_option('-t', '--datapath', action="store", dest="datapath", help="root directory", default="/share/dhanley2/recursion/data/128X128X3")
+parser.add_option('-s', '--seed', action="store", dest="seed", help="model seed", default="1234")
+parser.add_option('-o', '--fold', action="store", dest="fold", help="Fold for split", default="0")
+parser.add_option('-b', '--batchsize', action="store", dest="batchsize", help="batch size", default="16")
+parser.add_option('-s', '--accum', action="store", dest="accum", help="model accumulation", default="1")
+parser.add_option('-y', '--exptype', action="store", dest="exptype", help="experiment type", default="HEPG2")
 
 
+args = {'gpu':'0',
+        'fp16' : False,
+        'gradient_accumulation_steps':1,
+        'fold' : 0,
+        'gan_batch_size':8,
+        'type':'HEPG2'}
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -50,7 +61,11 @@ root_train = os.path.join(options.datapath, 'train') + '/'
 root_test = os.path.join(options.datapath, 'test') + '/'
 target_train = os.path.join(options.targetpath, 'train') +'/'
 target_test = os.path.join(options.targetpath, 'test') + '/'
-
+SEED = int(options.seed)
+FOLD = int(options.fold)
+ACCUM = int(options.accum)
+TYPE = int(options.type)
+BATCHSIZE = int(options.batchsize)
 
 print(root_train)
 print(root_test)
