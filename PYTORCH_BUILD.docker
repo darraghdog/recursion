@@ -28,7 +28,8 @@ RUN pip install pandas
 RUN pip install scikit-learn
 RUN pip install tensorflow-gpu
 RUN pip install keras
-RUN pip install pip install kaggle --upgrade
+RUN pip install kaggle --upgrade
+RUN pip install albumentations
 #RUN git clone https://github.com/NVIDIA/apex.git && cd apex && python setup.py install --cuda_ext --cpp_ext && cd ..
 #RUN pip install pytorch-pretrained-bert
 
