@@ -50,6 +50,12 @@ from utils import dumpobj, loadobj
 logger = get_logger('Recursion-cgan', 'INFO') # noqa
 logger.info('Cuda set up : time {}'.format(datetime.datetime.now().time()))
 
+sys.path.append(options.rootpath + 'repos/cyclegan')
+print(options.rootpath + '/repos/cyclegan')
+import models
+print(dir(models))
+
+
 device=torch.device('cuda')
 logger.info('Device : {}'.format(torch.cuda.get_device_name(0)))
 logger.info('Cuda available : {}'.format(torch.cuda.is_available()))
@@ -354,7 +360,8 @@ epochs = EPOCHS
 
 
 logger.info('Import cgan: time {}'.format(datetime.datetime.now().time()))
-from repos.cyclegan.models.cycle_gan_model import CycleGANModel
+#from repos.cyclegan.models.cycle_gan_model import CycleGANModel
+from models.cycle_gan_model import CycleGANModel
 
 with open(normfile,'rb') as f:
     norms = pickle.load(f)
