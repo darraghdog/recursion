@@ -50,8 +50,10 @@ from utils import dumpobj, loadobj
 logger = get_logger('Recursion-cgan', 'INFO') # noqa
 logger.info('Cuda set up : time {}'.format(datetime.datetime.now().time()))
 
-sys.path.append(options.rootpath + 'repos/cyclegan')
+sys.path.append(options.rootpath + '/repos/cyclegan')
 print(options.rootpath + '/repos/cyclegan')
+print(sys.path)
+print(os.listdir('/share/dhanley2/recursion/repos/cyclegan'))
 import models
 print(dir(models))
 
@@ -80,7 +82,8 @@ FOLD = int(options.fold)
 ACCUM = int(options.accum)
 TYPE = options.exptype
 BATCHSIZE = int(options.batchsize)
-
+IMGTYPE = options.datapath.split('/')[-1]
+print(IMGTYPE)
 #print(root_train)
 #print(root_test)
 #print(target_train)
@@ -120,7 +123,8 @@ class ImageDataLoaderV1:
         #     self.norms = pickle.load(f)
 
     def load_img(self,fp):
-        img = cv2.imread(fp,cv2.IMREAD_UNCHANGED)
+        #print(fp)
+        img = cv2.imread(fp.replace('cgan', IMGTYPE ) ,cv2.IMREAD_UNCHANGED)
         #exp = fp.split('/')[4] + '-' + fp.split('/')[5][-1]
         #m = self.norms[exp]['mean']
         #s = self.norms[exp]['std']
@@ -232,7 +236,7 @@ class BaseOptions:
         self.ngf=64#, help='# of gen filters in the last conv layer')
         self.ndf=64#, help='# of discrim filters in the first conv layer')
         self.netD='basic'#                            help='specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator')
-        self.netG='unet_256'#                         help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_256 | unet_128]')
+        self.netG='unet_128'# 'unet_256'#                         help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_256 | unet_128]')
         self.n_layers_D=3#, help='only used if netD==n_layers')
         self.norm='instance'#,                            help='instance normalization or batch normalization [instance | batch | none]')
         self.init_type='normal'#,                            help='network initialization [normal | xavier | kaiming | orthogonal]')
