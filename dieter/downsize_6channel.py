@@ -65,6 +65,7 @@ def load_images_as_tensor(image_paths, dim, dtype=np.float32):
     return data
 
 def create_target_folder(fn):
+    new_fn = target + '/'.join(fn.split('/')[2:]) + '.png'
     new_dir = '/'.join(new_fn.split('/')[:-1]) + '/'
     if not os.path.exists(new_dir):
        os.makedirs(new_dir)
@@ -91,9 +92,6 @@ def convert(fn):
            os.makedirs(new_dir)
         dumpobj(new_dir+new_fn)
         #cv2.imwrite(new_fn,b)
-
-image_paths[1]
-data[:,:,1]
 
 root = root_train
 target = target_train
