@@ -44,38 +44,42 @@ for (k,v) in options.__dict__.items():
 
 root_train = os.path.join(options.rootpath, options.datapath, 'train') + '/'
 root_test = os.path.join(options.rootpath, options.datapath, 'test') + '/'
-data_train = os.path.join(options.rootpath, options.datapath, 'train') +'/'
-data_test = os.path.join(options.rootpath, options.datapath, 'test') + '/'
+data_train = os.path.join(options.rootpath, 'data', options.datapath, 'train') +'/'
+data_test = os.path.join(options.rootpath, 'data', options.datapath, 'test') + '/'
 DIMSIZE = int(options.dimsize)
         
 def loadobj(file):
     with open(file, 'rb') as handle:
         return pickle.load(handle)
 
-logger.info('Traverse directories : time {}'.format(datetime.datetime.now().time()))
+os.listdir('/share/dhanley2/recursion/data/128X128X6/train/')
+
+logger.info('Traverse directory {} : time {}'.format(data_train, datetime.datetime.now().time()))
 
 # Directories traverse 
 normdict = {}
-for t, (dir_, subdir_, files_) in enumerate(os.walk(data_train)):
-    if subdir_ != []:
-        continue
-    experiment = dir_.split('/')[-2]
-    normdict[experiment] = {'mean' : [], 'std' : []}
-    for file_ in files_:
-        if '.pk' in file_:
-            fname = os.path.join(dir_, file_)
-            try : 
-                im = loadobj(fname)
-                normdict[experiment]['mean'].append(im.mean((0,1)))
-                normdict[experiment]['std'].append(im.std((0,1)))
-            except:
-                print('Error loading : {}'.format(fname))
-    normdict[experiment]['mean'] = sum(normdict[experiment]['mean'])/len(normdict[experiment]['mean'])   
-    normdict[experiment]['std'] = sum(normdict[experiment]['std'])/len(normdict[experiment]['std']) 
-    normdict[experiment]['mean'] /= 255
-    normdict[experiment]['std'] /= 255
-
-logger.info('Results : {print()}'.format(normdict))
+for data_dir in [data_test, data_train]:
+    for t, (dir_, subdir_, files_) in enumerate(os.walk(data_dir)):
+        if subdir_ != []:
+            continue
+        logger.info('Process directories : {} {}'.format(dir_, subdir_))
+        experiment = '/'.join(dir_.split('/')[-2:])
+        normdict[experiment] = {'mean' : [], 'std' : []}
+        for file_ in files_:
+            if '.pk' in file_:
+                fname = os.path.join(dir_, file_)
+                try : 
+                    im = loadobj(fname)
+                    normdict[experiment]['mean'].append(im.mean((0,1)))
+                    normdict[experiment]['std'].append(im.std((0,1)))
+                except:
+                    logger.info('Error loading : {}'.format(fname))
+        normdict[experiment]['mean'] = sum(normdict[experiment]['mean'])/len(normdict[experiment]['mean'])   
+        normdict[experiment]['std'] = sum(normdict[experiment]['std'])/len(normdict[experiment]['std']) 
+        normdict[experiment]['mean'] /= 255
+        normdict[experiment]['std'] /= 255
+        logger.info('Experiment Stats : {}'.format(normdict[experiment]))
+logger.info('Results : {}'.format(normdict))
 
 logger.info('Output files : time {}'.format(datetime.datetime.now().time()))
 
