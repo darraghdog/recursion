@@ -26,13 +26,13 @@ parser.add_option('-t', '--datapath', action="store", dest="datapath", help="roo
 parser.add_option('-m', '--modelpath', action="store", dest="modelpath", help="root directory", default="dieter/weights/128/2")
 parser.add_option('-s', '--seed', action="store", dest="seed", help="model seed", default="1234")
 parser.add_option('-f', '--foldsfile', action="store", dest="foldsfile", help="Folds File for split", default="folds.p")
-parser.add_option('-n', '--normfile', action="store", dest="normfile", help="Normalisation File", default="experiment_normalizations_128x128x6.p")
+parser.add_option('-n', '--normfile', action="store", dest="normfile", help="Normalisation File", default="experiment_normalizations128x128x6.p")
 parser.add_option('-o', '--fold', action="store", dest="fold", help="Fold for split", default="0")
 parser.add_option('-e', '--epochs', action="store", dest="epochs", help="Gan training epochs", default="15")
 parser.add_option('-b', '--batchsize', action="store", dest="batchsize", help="batch size", default="16")
 parser.add_option('-a', '--accum', action="store", dest="accum", help="model accumulation", default="1")
 parser.add_option('-y', '--exptype', action="store", dest="exptype", help="experiment type", default="HEPG2")
-parser.add_option('-a', '--dimsize', action="store", dest="dimsize", help="root directory", default="128")
+parser.add_option('-c', '--dimsize', action="store", dest="dimsize", help="root directory", default="128")
 
 
 options, args = parser.parse_args()

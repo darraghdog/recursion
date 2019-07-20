@@ -63,8 +63,7 @@ for data_dir in [data_test, data_train]:
         if subdir_ != []:
             continue
         logger.info('Process directories : {} {}'.format(dir_, subdir_))
-
-        experiment = '/'.join(dir_.split('/')[-2:])
+        experiment = dir_.split('/')[-2]
         if experiment not in normdict:
             normdict[experiment] = {'mean' : [], 'std' : []}
         for file_ in files_:
@@ -76,7 +75,7 @@ for data_dir in [data_test, data_train]:
                     normdict[experiment]['std'].append(im.std((0,1)))
                 except:
                     logger.info('Error loading : {}'.format(fname))
-        logger.info('Image count:{}'.format(len(normdict[experiment]['mean'] )))
+        logger.info('Image count for experiment {}: {}'.format(experiment, len(normdict[experiment]['mean'] )))
 
 for experiment in normdict.keys():
     normdict[experiment]['mean'] = sum(normdict[experiment]['mean'])/len(normdict[experiment]['mean'])   
