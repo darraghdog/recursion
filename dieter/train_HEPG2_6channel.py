@@ -44,12 +44,7 @@ logger = get_logger('Recursion-cgan', 'INFO') # noqa
 logger.info('Cuda set up : time {}'.format(datetime.datetime.now().time()))
 
 sys.path.append(options.rootpath + '/repos/cyclegan')
-#print(options.rootpath + '/repos/cyclegan')
-#print(sys.path)
-#print(os.listdir('/share/dhanley2/recursion/repos/cyclegan'))
 import models
-#print(dir(models))
-
 
 device=torch.device('cuda')
 logger.info('Device : {}'.format(torch.cuda.get_device_name(0)))
@@ -77,14 +72,6 @@ TYPE = options.exptype
 BATCHSIZE = int(options.batchsize)
 IMGTYPE = options.datapath.split('/')[-1]
 DIMSIZE = int(options.dimsize)
-
-print(IMGTYPE)
-# print(root_train)
-# print(root_test)
-# print(target_train)
-# print(target_test)
-# os.environ['CUDA_VISIBLE_DEVICES'] = args['gpu']
-
 
 def seed_torch(seed=1029):
     random.seed(seed)
@@ -120,14 +107,11 @@ class ImageDataLoaderV1:
         self.preprocess_y = lambda x: x
         self.cast_x = lambda x: x
         self.cast_y = lambda x: x
-        # with open('experiment_plate_normalizations_128x128x3.p','rb') as f:
-        #     self.norms = pickle.load(f)
 
     def load_aug_img(self,fp, aug):
         img = loadobj(fp)
         if aug is not None:
             img = self.aug(image=img)['image']
-        #img = cv2.imread(fp.replace('cgan', IMGTYPE ) ,cv2.IMREAD_UNCHANGED)
         img = img /255.
         return img.astype(np.float32)
 
@@ -342,10 +326,32 @@ splits = get_splits(train)
 
 logger.info('Initialise augmentation: time {}'.format(datetime.datetime.now().time()))
 
+# 'RPE-01': {'mean': array([0.38465203, 0.20891064, 0.1868836 ]),
+#  'std': array([0.20245762, 0.13382066, 0.13776862])}
+# normfile = '/Users/dhanley2/Documents/Personal/recursion/data/experiment_normalizations256X256X6.p'
+with open(normfile,'rb') as f:
+    norms = pickle.load(f)
+    
+                        A.Normalize() 
+
+
+augdict = {}
+
+for k,v in norms.items():
+    mean_ = tuple((v['mean']*255).tolist())
+    std_ = tuple((v['std']*255).tolist())
+    augdict[k] = A.Compose([A.RandomRotate90(p=1),
+                        A.HorizontalFlip(p=0.5),
+                        A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
+                        A.Normalize(mean=mean_, std=std_, max_pixel_value=255.0)
+                        ])
+    
+'''
 normal_aug = A.Compose([A.RandomRotate90(p=1),
                         A.HorizontalFlip(p=0.5),
                         A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
 ])
+'''
     
 logger.info('Set train params: time {}'.format(datetime.datetime.now().time()))
 opt =TrainOptions()
@@ -355,13 +361,6 @@ epochs = EPOCHS
 logger.info('Import cgan: time {}'.format(datetime.datetime.now().time()))
 #from repos.cyclegan.models.cycle_gan_model import CycleGANModel
 from models.cycle_gan_model import CycleGANModel
-
-
-# 'RPE-01': {'mean': array([0.38465203, 0.20891064, 0.1868836 ]),
-#  'std': array([0.20245762, 0.13382066, 0.13776862])}
-# normfile = '/Users/dhanley2/Documents/Personal/recursion/data/experiment_normalizations_128x128x3.p'
-with open(normfile,'rb') as f:
-    norms = pickle.load(f)
 
 
 es = ['01','02','03','04','05','06','07']
@@ -379,20 +378,21 @@ B_exps = [e for e in es if not e == a]
 logger.info('start training: time {}'.format(datetime.datetime.now().time()))
 
 for B_exp in B_exps:
-    B_exp
-    #tr_df = train.loc[tr_ind]
-    A_df = train[train['experiment'] == cell +'-'+  A_exp]
+    
+    TYPE_A = cell +'-'+  A_exp
+    TYPE_B = cell +'-'+  B_exp
+    
+    logger.info('A_Experiment {} B_Experiment {} : time {}'.format( \
+            TYPE_A, TYPE_B, datetime.datetime.now().time()))
+    
+    A_df = train[train['experiment'] == TYPE_A]
     A_dl = ImageDataLoaderV1(A_df['fp'].values,A_df['sirna'].values.astype(int))
-    A_dl.set_gen(batch_size=BATCHSIZE,shuffle=True,aug=normal_aug)#, cast_x=lambda x: x[None,:])
-
-    #x,y = next(iter(train_dl))
-
-    #val_df = train.loc[val_ind]
-    B_df = train[train['experiment'] == cell +'-'+ B_exp]
+    A_dl.set_gen(batch_size=BATCHSIZE,shuffle=True,aug=augdict[TYPE_A])
+    
+    B_df = train[train['experiment'] == cell +'-'+ TYPE_B]
     B_dl = ImageDataLoaderV1(B_df['fp'].values,B_df['sirna'].values.astype(int))
-    B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=normal_aug)#,cast_x=lambda x: x[None,:])
-
-
+    B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=augdict[TYPE_B])
+    
     m = CycleGANModel(opt)
 
     for e in range(epochs):
@@ -412,11 +412,9 @@ for B_exp in B_exps:
             losses = m.get_current_losses()
             tloss = np.sum([losses[item] for item in losses])
             tlosses += tloss / dl.len
-            # print(tloss)
         print(tlosses)
 
     logger.info('Save Network: time {}'.format(datetime.datetime.now().time()))
-    #MODEL_PATH = 'models/normalization/cycle_gan/256/1/'
     SUB_DIR1 = cell + '/'
     SUB_DIR2 = A_exp + '-' + B_exp + '/'
     if not os.path.exists(MODEL_PATH + SUB_DIR1 + SUB_DIR2):
@@ -444,7 +442,7 @@ for B_exp in B_exps:
 
         new_img = np.clip(new_img, 0,1)
         new_img = np.round(255*new_img).astype(np.uint8)
-        if i%1000:
+        if i%10000000:
             logger.info('Out shape : {}'.format(new_img.shape))
             logger.info('Out location : {}'.format(new_fns[i]))
         dumpobj(new_fns[i],new_img)
