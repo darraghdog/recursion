@@ -64,12 +64,6 @@ def load_images_as_tensor(image_paths, dim, dtype=np.float32):
 
     return data
 
-def create_target_folder(fn):
-    new_fn = target + '/'.join(fn.split('/')[2:]) + '.png'
-    new_dir = '/'.join(new_fn.split('/')[:-1]) + '/'
-    if not os.path.exists(new_dir):
-       os.makedirs(new_dir)
-
 def dumpobj(file, obj):
     with open(file, 'wb') as handle:
         pickle.dump(obj, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -78,20 +72,18 @@ def loadobj(file):
     with open(file, 'rb') as handle:
         return pickle.load(handle)
 
-
 def convert(fn):
-    new_fn = target + '/'.join(fn.split('/')[2:]) + '.pk'
-    new_dir = '/'.join(new_fn.split('/')[:-1]) + '/'
-    if not os.path.exists(new_fn):
-        img_paths = [fn + f'{i}.png' for i in range(1,7)]
-        t = load_images_as_tensor(img_paths, dim = DIMSIZE)
-        t = np.round(t).astype(np.uint8)
-        # t = np.moveaxis(t, -1, 0)
-        #loadobj(tmp)
-        if not os.path.exists(new_dir):
-           os.makedirs(new_dir)
-        dumpobj(new_dir+new_fn)
-        #cv2.imwrite(new_fn,b)
+    fname = fn.split('/')[-1] + '.pk'
+    fdir = fn.replace(fn.split('/')[-1], '')
+    fdir = fdir.replace('data', 'data/{}'.format(options.targetpath))
+    img_paths = [fn + f'{i}.png' for i in range(1,7)]
+    t = load_images_as_tensor(img_paths, dim = DIMSIZE)
+    t = np.round(t).astype(np.uint8)
+    try:
+        os.makedirs(fdir)
+    except:
+        1
+    dumpobj(fdir+fname, t)
 
 root = root_train
 target = target_train
@@ -105,23 +97,13 @@ for g in tqdm(genes):
         for f in files2:
             fns += [f]
 
-fn = fns[0]
-#target = 'input/preprocessed/128x128x3/train/'
-if not os.path.exists(target):
-    os.makedirs(target)
-
-for fn in tqdm(fns):
-    create_target_folder(fn)
-
-num_cores = 8
+num_cores = 16
 from joblib import Parallel, delayed
+
 Parallel(n_jobs=num_cores, prefer="threads")(delayed(convert)(i) for i in tqdm(fns))
 
 root = root_test
 target = target_test
-if not os.path.exists(target):
-    os.makedirs(target)
-
 fns = []
 genes = os.listdir(root)
 for g in tqdm(genes):
@@ -132,9 +114,6 @@ for g in tqdm(genes):
         for f in files2:
             fns += [f]
 
-for fn in tqdm(fns):
-    create_target_folder(fn)
-
 Parallel(n_jobs=num_cores, prefer="threads")(delayed(convert)(i) for i in tqdm(fns))
 
-
+# ['/share/dhanley2/recursion/data/test/HEPG2-08/Plate1/B13_s1_w', '/share/dhanley2/recursion/data/test/HEPG2-08/Plate1/K22_s1_w', '/share/dhanley2/recursion/data/test/HEPG2-08/Plate1/B20_s1_w', '/share/dhanley2/recursion/data/test/HEPG2-08/Plate1/C09_s1_w', '/share/dhanley2/recursion/data/test/HEPG2-08/Plate1/M20_s2_w']

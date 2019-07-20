@@ -21,7 +21,7 @@ import pickle
 # Print info about environments
 parser = optparse.OptionParser()
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion")
-parser.add_option('-d', '--targetpath', action="store", dest="targetpath", help="root directory", default="data/cgan/")
+parser.add_option('-d', '--targetpath', action="store", dest="targetpath", help="root directory", default="data/128X128X6/cgan/")
 parser.add_option('-t', '--datapath', action="store", dest="datapath", help="root directory", default="data/128X128X6")
 parser.add_option('-m', '--modelpath', action="store", dest="modelpath", help="root directory", default="dieter/weights/128/2")
 parser.add_option('-s', '--seed', action="store", dest="seed", help="model seed", default="1234")
@@ -34,7 +34,6 @@ parser.add_option('-a', '--accum', action="store", dest="accum", help="model acc
 parser.add_option('-y', '--exptype', action="store", dest="exptype", help="experiment type", default="HEPG2")
 parser.add_option('-c', '--dimsize', action="store", dest="dimsize", help="root directory", default="128")
 
-
 options, args = parser.parse_args()
 sys.path.append(options.rootpath)
 from logs import get_logger
@@ -45,11 +44,11 @@ logger = get_logger('Recursion-cgan', 'INFO') # noqa
 logger.info('Cuda set up : time {}'.format(datetime.datetime.now().time()))
 
 sys.path.append(options.rootpath + '/repos/cyclegan')
-print(options.rootpath + '/repos/cyclegan')
-print(sys.path)
-print(os.listdir('/share/dhanley2/recursion/repos/cyclegan'))
+#print(options.rootpath + '/repos/cyclegan')
+#print(sys.path)
+#print(os.listdir('/share/dhanley2/recursion/repos/cyclegan'))
 import models
-print(dir(models))
+#print(dir(models))
 
 
 device=torch.device('cuda')
@@ -65,8 +64,8 @@ for (k,v) in options.__dict__.items():
 ROOT = options.rootpath
 root_train = os.path.join(options.datapath, 'train') + '/'
 root_test = os.path.join(options.datapath, 'test') + '/'
-image_train = os.path.join(options.rootpath, options.targetpath, 'train') +'/'
-image_test = os.path.join(options.rootpath, options.targetpath, 'test') + '/'
+image_train = os.path.join(options.rootpath, options.datapath, 'train') +'/'
+image_test = os.path.join(options.rootpath, options.datapath, 'test') + '/'
 foldsfile = os.path.join(options.rootpath, 'data', options.foldsfile)
 normfile = os.path.join(options.rootpath, 'data', options.normfile)
 MODEL_PATH = os.path.join(options.rootpath, options.modelpath)
@@ -446,7 +445,7 @@ for B_exp in B_exps:
     logger.info('Save GANS as image  : time {}'.format(datetime.datetime.now().time()))
     # save normalizations
     B_dl.set_gen(batch_size=1,shuffle=False,cast_x=apply_gan )
-    new_fns = [image_train + '/' + '/'.join(fp.split('/')[3:]) for fp in B_dl.fns]
+    new_fns = [image_train + '/cgan/' + '/'.join(fp.split('/')[-3:]) for fp in B_dl.fns]
     #make folders
     new_folders = list(set(['/'.join(fp.split('/')[:-1]) for fp in new_fns]))
     for f in new_folders:
@@ -459,5 +458,7 @@ for B_exp in B_exps:
 
         new_img = np.clip(new_img, 0,1)
         new_img = np.round(255*new_img).astype(int)
-        cv2.imwrite(new_fns[i],new_img)
+        logger.info('Out shape : {}'.format(new_img.shape))
+        logger.info('Out location : {}'.format(new_fns[i]))
+        dumpobj(new_fns[i],new_img)
         i += 1
