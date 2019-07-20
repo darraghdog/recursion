@@ -21,7 +21,7 @@ import pickle
 # Print info about environments
 parser = optparse.OptionParser()
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion")
-parser.add_option('-d', '--targetpath', action="store", dest="targetpath", help="root directory", default="data/128X128X6/cgan/")
+#parser.add_option('-d', '--targetpath', action="store", dest="targetpath", help="root directory", default="data/128X128X6/cgan/")
 parser.add_option('-t', '--datapath', action="store", dest="datapath", help="root directory", default="data/128X128X6")
 parser.add_option('-m', '--modelpath', action="store", dest="modelpath", help="root directory", default="dieter/weights/128/2")
 parser.add_option('-s', '--seed', action="store", dest="seed", help="model seed", default="1234")
