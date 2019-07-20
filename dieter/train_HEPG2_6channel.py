@@ -374,20 +374,6 @@ A_exp = a
 
 B_exps = [e for e in es if not e == a]
 
-##########################
-########## Test ##########
-##########################
-'''
-B_exp='01'
-B_df = train[(train['experiment'] == cell +'-'+ B_exp) & (train['plate']==1)]
-B_dl = ImageDataLoaderV1(B_df['fp'].values,B_df['sirna'].values.astype(int))
-B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=normal_aug)#,cast_x=lambda x: x[None,:])
-for i in B_dl:
-    i
-dir(B_dl)
-'''
-##########################
-
 #'02',
 
 logger.info('start training: time {}'.format(datetime.datetime.now().time()))
@@ -457,8 +443,9 @@ for B_exp in B_exps:
         new_img = np.transpose(new_img[0].cpu().data.numpy(), (1, 2, 0))
 
         new_img = np.clip(new_img, 0,1)
-        new_img = np.round(255*new_img).astype(int)
-        logger.info('Out shape : {}'.format(new_img.shape))
-        logger.info('Out location : {}'.format(new_fns[i]))
+        new_img = np.round(255*new_img).astype(np.uint8)
+        if i%1000:
+            logger.info('Out shape : {}'.format(new_img.shape))
+            logger.info('Out location : {}'.format(new_fns[i]))
         dumpobj(new_fns[i],new_img)
         i += 1
