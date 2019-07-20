@@ -88,7 +88,7 @@ logger.info('Results : {}'.format(normdict))
 
 logger.info('Output files : time {}'.format(datetime.datetime.now().time()))
 
-outfile = os.path.join(options.rootpath, 'data', 'experiment_normalizations{}.p'.format(options.datapath))
+outfile = os.path.join(options.rootpath, 'data', 'experiment_normalizations{}X{}X6.p'.format(DIMSIZE, DIMSIZE))
 dumpobj(outfile, normdict)
             
 #normfile = '/Users/dhanley2/Documents/Personal/recursion/data/experiment_normalizations_128x128x3.p'
