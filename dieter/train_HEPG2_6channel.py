@@ -146,9 +146,11 @@ class ImageDataLoaderV1:
         imgs = []
         for i, fn in enumerate(fns_batch):
             img = self.load_aug_img(fn, aug)
+            EXPERIMENT = fn.split('/')[-3]
+            for i in range(6):
+                img[:,:,i] = (img[:,:,i] - norms[EXPERIMENT]['mean'][i]) /  norms[EXPERIMENT]['std'][i]
+            #print(fn.split('/')[-3], img.mean(), img.std(), img.shape)
             img = self.preprocess_x(img)
-            #if aug is not None:
-            #    img = self.augment(img)
             img = np.transpose(img, (2, 0, 1))
             imgs+=[img]
 
@@ -332,26 +334,12 @@ logger.info('Initialise augmentation: time {}'.format(datetime.datetime.now().ti
 with open(normfile,'rb') as f:
     norms = pickle.load(f)
     
-                        A.Normalize() 
 
-
-augdict = {}
-
-for k,v in norms.items():
-    mean_ = tuple((v['mean']*255).tolist())
-    std_ = tuple((v['std']*255).tolist())
-    augdict[k] = A.Compose([A.RandomRotate90(p=1),
-                        A.HorizontalFlip(p=0.5),
-                        A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
-                        A.Normalize(mean=mean_, std=std_, max_pixel_value=255.0)
-                        ])
-    
-'''
 normal_aug = A.Compose([A.RandomRotate90(p=1),
                         A.HorizontalFlip(p=0.5),
                         A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
 ])
-'''
+
     
 logger.info('Set train params: time {}'.format(datetime.datetime.now().time()))
 opt =TrainOptions()
@@ -359,7 +347,6 @@ epochs = EPOCHS
 
 
 logger.info('Import cgan: time {}'.format(datetime.datetime.now().time()))
-#from repos.cyclegan.models.cycle_gan_model import CycleGANModel
 from models.cycle_gan_model import CycleGANModel
 
 
@@ -370,10 +357,40 @@ dists = [np.mean(np.abs(norms[f'HEPG2-{i}']['mean'] - me)) for i in es]
 a = es[np.argmin(dists)]
 cell = TYPE # args['type']
 A_exp = a
-
 B_exps = [e for e in es if not e == a]
 
 #'02',
+'''
+normal_aug = A.Compose([A.RandomRotate90(p=1),
+                        A.HorizontalFlip(p=0.5),
+                        A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
+])
+BATCHSIZE=16
+cell = 'HEPG2'
+B_exp='01'
+TYPE_B = cell +'-'+  B_exp
+ROOT='/Users/dhanley2/Documents/Personal/recursion/'
+train = pd.read_csv( os.path.join( ROOT, 'data', 'train.csv'))#.iloc[:3000]
+train2 = pd.read_csv( os.path.join( ROOT, 'data', 'train.csv'))#.iloc[:3000]
+train['side'] = 1
+train2['side'] = 2
+train =pd.concat([train,train2]).reset_index(drop=True)
+image_train='/Users/dhanley2/Documents/Personal/recursion/data/128X128X6/train'
+train['fp'] = train.apply(lambda x: get_fp(image_train, x),axis = 1)
+
+
+B_df = train[(train['experiment'] == cell +'-'+ B_exp) & (train['plate']==1)]
+B_dl = ImageDataLoaderV1(B_df['fp'].values,B_df['sirna'].values.astype(int))
+B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=normal_aug)#,cast_x=lambda x: x[None,:])
+
+for i in B_dl:
+    print(50*'-')
+    print(i[0].shape)
+    for j in range(6):
+        print(j, i[0][:,j,:,:].min(), i[0][:,j,:,:].max(), i[0][:,j,:,:].mean(), i[0][:,j,:,:].std())
+    print(i[0][0,0,:3,:3])
+    break
+'''
 
 logger.info('start training: time {}'.format(datetime.datetime.now().time()))
 
@@ -439,11 +456,11 @@ for B_exp in B_exps:
     i = 0
     for new_img, _ in tqdm(B_dl):
         new_img = np.transpose(new_img[0].cpu().data.numpy(), (1, 2, 0))
-
-        new_img = np.clip(new_img, 0,1)
-        new_img = np.round(255*new_img).astype(np.uint8)
+        #new_img = np.clip(new_img, 0,1)
+        #new_img = np.round(255*new_img).astype(np.uint8)
         if i%10000000:
             logger.info('Out shape : {}'.format(new_img.shape))
             logger.info('Out location : {}'.format(new_fns[i]))
         dumpobj(new_fns[i],new_img)
         i += 1
+    break
