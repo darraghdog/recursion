@@ -21,7 +21,7 @@ import datetime
 import torchvision
 from torchvision import transforms as T
 
-import tqdm
+from tqdm import tqdm
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -295,12 +295,13 @@ for epoch in range(EPOCHS):
         tloss += loss.item() 
         acc += accuracy(output.cpu(), y)
         del loss, output, y, x# , target
-    
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     if epoch %5==0:
         torch.save(model.state_dict(), output_model_file)
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
+    if epoch < 10:
+        continue
     model.eval()
     print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
     preds, probs = prediction(model, vloader)
