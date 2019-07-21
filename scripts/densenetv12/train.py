@@ -329,10 +329,12 @@ for epoch in range(EPOCHS):
     probsbag = sum(probsls)/len(probsls)
     # Only argmax the non controls
     probsbag = probsbag[:,:1108]
-    # predsbag = np.argmax(probsbag, 1)
+    predsbagmax = np.argmax(probsbag, 1)
     predsbag = single_pred(validdf, probsbag).astype(int)
+    matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
     matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    outmsg = 'Epoch {} -> Fold {} -> Accuracy: {:.4f} - NPreds {}'.format(epoch+1, fold, matchesbag/predsbag.shape[0], len(probsls))
+    outmsg = 'Epoch {} -> Fold {} -> Accuracy Sngl: {:.4f} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
+                    epoch+1, fold, matchesbag/predsbag.shape[0], matchesbagmax/predsbag.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
