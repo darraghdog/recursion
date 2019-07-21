@@ -110,10 +110,12 @@ class ImageDataLoaderV1:
 
     def load_aug_img(self,fp, aug, exp):
         img = loadobj(fp)
+        '''
         print(50*'-')
         print(img.shape)
         print(exp)
         print(img[:2,:2])
+        '''
         if aug is not None:
             img = self.aug(image=img)['image']
         img = img /255.
@@ -410,7 +412,7 @@ for B_exp in B_exps:
     A_dl = ImageDataLoaderV1(A_df['fp'].values,A_df['sirna'].values.astype(int))
     A_dl.set_gen(batch_size=BATCHSIZE,shuffle=True,aug=aug)
     
-    B_df = train[train['experiment'] == cell +'-'+ TYPE_B]
+    B_df = train[train['experiment'] == TYPE_B]
     B_dl = ImageDataLoaderV1(B_df['fp'].values,B_df['sirna'].values.astype(int))
     B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=aug)
     
