@@ -339,9 +339,9 @@ with open(normfile,'rb') as f:
     norms = pickle.load(f)
     
 
-normal_aug = A.Compose([A.RandomRotate90(p=1),
+aug = A.Compose([A.RandomRotate90(p=1),
                         A.HorizontalFlip(p=0.5),
-                        A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
+                        #A.IAAAffine(translate_percent=10,rotate=45,shear=10, scale=(0.9,1.1)),
 ])
 
     
@@ -408,11 +408,11 @@ for B_exp in B_exps:
     
     A_df = train[train['experiment'] == TYPE_A]
     A_dl = ImageDataLoaderV1(A_df['fp'].values,A_df['sirna'].values.astype(int))
-    A_dl.set_gen(batch_size=BATCHSIZE,shuffle=True,aug=augdict[TYPE_A])
+    A_dl.set_gen(batch_size=BATCHSIZE,shuffle=True,aug=aug)
     
     B_df = train[train['experiment'] == cell +'-'+ TYPE_B]
     B_dl = ImageDataLoaderV1(B_df['fp'].values,B_df['sirna'].values.astype(int))
-    B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=augdict[TYPE_B])
+    B_dl.set_gen(batch_size=BATCHSIZE,shuffle=True, aug=aug)
     
     m = CycleGANModel(opt)
 
