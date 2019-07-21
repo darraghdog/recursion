@@ -38,7 +38,6 @@ parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Wor
 parser.add_option('-f', '--weightsname', action="store", dest="weightsname", help="Weights file name", default="pytorch_model.bin")
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
 parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate", default="0.00003")
-parser.add_option('-z', '--size', action="store", dest="size", help="Image size", default="512")
 
 
 options, args = parser.parse_args()
@@ -70,7 +69,6 @@ batch_size = int(options.batchsize)
 ROOT = options.rootpath
 path_data = os.path.join(ROOT, "data")
 WORK_DIR = os.path.join(ROOT, options.workpath)
-SIZE = int(options.size)
 WEIGHTS_NAME = options.weightsname
 fold = int(options.fold)
 nbags= int(options.nbags)
@@ -102,7 +100,6 @@ class ImagesDS(D.Dataset):
     @staticmethod
     def _load_img_as_tensor(file_name, seed, mean_, sd_):
         with Image.open(file_name) as img:
-            img = T.Resize((SIZE, SIZE), interpolation=2) (img)
             img = np.array(img)
             img = random_flip(img, seed)
             img = Image.fromarray(img)
@@ -112,8 +109,11 @@ class ImagesDS(D.Dataset):
             return img
     
     def _get_img_path(self, index, channel):
-        experiment, well, plate = self.records[index].experiment, self.records[index].well, self.records[index].plate
-        return '/'.join([self.img_dir,self.mode,experiment,f'Plate{plate}',f'{well}_s{self.site}_w{channel}.png'])
+        experiment, well, plate, mode = self.records[index].experiment, \
+                                    self.records[index].well, \
+                                    self.records[index].plate, /
+                                    self.records[index].mode
+        return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{self.site}_w{channel}.png'])
         
     def __getitem__(self, index):
         seed = random.randint(1,10000)
@@ -168,6 +168,27 @@ class DensNet(nn.Module):
         out = self.classifier(out)
         return out
 
+def single_pred(dffold, probs):
+    pred_df = dffold[['id_code','experiment']].copy()
+    exps = pred_df['experiment'].unique()
+    pred_df['sirna'] = 0
+    for exp in tqdm(exps):
+        preds1 = probs[pred_df['experiment'] == exp]
+        done = []
+        sirna_r = np.zeros((1108),dtype=int)
+        for a in np.argsort(np.reshape(preds1,-1))[::-1]:
+            ind = np.unravel_index(a, (preds1.shape[0], 1108), order='C')
+            if not ind[1] in done:
+                if not ind[0] in sirna_r:
+                    sirna_r[ind[1]]+=ind[0]
+                    #print([ind[1]]​)
+                    done+=[ind[1]]
+        preds2 = np.zeros((preds1.shape[0]),dtype=int)
+        for i in range(len(sirna_r)):
+            preds2[sirna_r[i]] = i
+        pred_df.loc[pred_df['experiment'] == exp,'sirna'] = preds2
+    return pred_df.sirna.values
+
 @torch.no_grad()
 def prediction(model, loader):
     preds = np.empty(0)
@@ -190,6 +211,12 @@ if not os.path.exists(WORK_DIR):
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
 train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
 testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
+train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
+test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
+
+train_dfall['mode'] = train_ctrl['mode'] = 'train'
+test_dfall['mode'] = test_ctrl['mode'] = 'test'
+
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
 statsdf = pd.read_csv( os.path.join( path_data, 'stats.csv'))
@@ -213,7 +240,15 @@ traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
 y_val = validdf.sirna.values
 
-ds = ImagesDS(traindf, path_data)
+# Add the controls
+train_ctrl.sirna = 1108
+test_ctrl.sirna = 1108
+trainfull = pd.concat([train, 
+                       train_ctrl.drop('well_type', 1), 
+                       test_ctrl.drop('well_type', 1)], 0)
+
+# ds = ImagesDS(traindf, path_data)
+ds = ImagesDS(trainfull, path_data)
 ds_val = ImagesDS(validdf, path_data, mode='train')
 ds_test = ImagesDS(testdf, path_data, mode='test')
 
@@ -292,15 +327,21 @@ for epoch in range(EPOCHS):
         dumpobj(os.path.join( WORK_DIR, 'val_prods_fold{}.pk'.format(fold)), probsls)
         dumpobj(os.path.join( WORK_DIR, 'tst_prods_fold{}.pk'.format(fold)), probststls)
     probsbag = sum(probsls)/len(probsls)
-    predsbag = np.argmax(probsbag, 1)
+    # Only argmax the non controls
+    probsbag = probsbag[:,:1108]
+    # predsbag = np.argmax(probsbag, 1)
+    predsbag = single_pred(validdf, probsbag).astype(int)
     matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
     outmsg = 'Epoch {} -> Fold {} -> Accuracy: {:.4f} - NPreds {}'.format(epoch+1, fold, matchesbag/predsbag.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
 probsbag = sum(probststls)/len(probststls)
-predsbag = np.argmax(probsbag, 1)
+probsbag = probsbag[:,:1108]
+
+# predsbag = np.argmax(probsbag, 1)
 submission = pd.read_csv(path_data + '/test.csv')
-submission['sirna'] = predsbag.astype(int)
+submission['sirna'] = single_pred(submission, probsbag).astype(int)
+# submission['sirna'] = predsbag.astype(int)
 submission.to_csv('submission_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
 
