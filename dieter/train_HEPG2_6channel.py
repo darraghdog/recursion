@@ -108,11 +108,17 @@ class ImageDataLoaderV1:
         self.cast_x = lambda x: x
         self.cast_y = lambda x: x
 
-    def load_aug_img(self,fp, aug):
+    def load_aug_img(self,fp, aug, exp):
         img = loadobj(fp)
+        print(50*'-')
+        print(img.shape)
+        print(exp)
+        print(img[:2,:2])
         if aug is not None:
             img = self.aug(image=img)['image']
         img = img /255.
+        for i in range(6):
+            img[:,:,i] = (img[:,:,i] - norms[exp]['mean'][i]) /  norms[exp]['std'][i]
         return img.astype(np.float32)
 
     def set_gen(self, batch_size, shuffle=True,aug = None, cast_x = None,cast_y = None, preprocess_x=None, preprocess_y=None):
@@ -145,10 +151,8 @@ class ImageDataLoaderV1:
 
         imgs = []
         for i, fn in enumerate(fns_batch):
-            img = self.load_aug_img(fn, aug)
             EXPERIMENT = fn.split('/')[-3]
-            for i in range(6):
-                img[:,:,i] = (img[:,:,i] - norms[EXPERIMENT]['mean'][i]) /  norms[EXPERIMENT]['std'][i]
+            img = self.load_aug_img(fn, aug, EXPERIMENT)
             #print(fn.split('/')[-3], img.mean(), img.std(), img.shape)
             img = self.preprocess_x(img)
             img = np.transpose(img, (2, 0, 1))
