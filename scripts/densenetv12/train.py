@@ -72,7 +72,7 @@ WORK_DIR = os.path.join(ROOT, options.workpath)
 WEIGHTS_NAME = options.weightsname
 fold = int(options.fold)
 nbags= int(options.nbags)
-classes = 1108
+classes = 1109
 device = 'cuda'
 
 
@@ -111,7 +111,7 @@ class ImagesDS(D.Dataset):
     def _get_img_path(self, index, channel):
         experiment, well, plate, mode = self.records[index].experiment, \
                                     self.records[index].well, \
-                                    self.records[index].plate, /
+                                    self.records[index].plate, \
                                     self.records[index].mode
         return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{self.site}_w{channel}.png'])
         
@@ -210,12 +210,12 @@ if not os.path.exists(WORK_DIR):
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
 train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
-testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
+test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))
 train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
-test_dfall['mode'] = test_ctrl['mode'] = 'test'
+test_df['mode'] = test_ctrl['mode'] = 'test'
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -223,7 +223,7 @@ statsdf = pd.read_csv( os.path.join( path_data, 'stats.csv'))
 if False: # Sample test run
     #samp = random.sample(range(train_dfall.shape[0]), 1500)
     train_dfall = train_dfall.iloc[np.where(train_dfall['sirna']<5)]
-    testdf = testdf.iloc[:500]
+    test_df = test_df.iloc[:500]
 
 logger.info('Calculate stats: time {}'.format(datetime.datetime.now().time()))
 
@@ -243,14 +243,14 @@ y_val = validdf.sirna.values
 # Add the controls
 train_ctrl.sirna = 1108
 test_ctrl.sirna = 1108
-trainfull = pd.concat([train, 
+trainfull = pd.concat([traindf, 
                        train_ctrl.drop('well_type', 1), 
                        test_ctrl.drop('well_type', 1)], 0)
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_data)
 ds_val = ImagesDS(validdf, path_data, mode='train')
-ds_test = ImagesDS(testdf, path_data, mode='test')
+ds_test = ImagesDS(test_df, path_data, mode='test')
 
 
 logger.info('Set up model : time {}'.format(datetime.datetime.now().time()))
