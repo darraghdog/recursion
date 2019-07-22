@@ -34,6 +34,7 @@ parser.add_option('-p', '--nbags', action="store", dest="nbags", help="Number of
 parser.add_option('-e', '--epochs', action="store", dest="epochs", help="epochs", default="5")
 parser.add_option('-b', '--batchsize', action="store", dest="batchsize", help="batch size", default="16")
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion/")
+parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/data/mount/512X512X6/")
 parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Working path", default="densenetv1/weights")
 parser.add_option('-f', '--weightsname', action="store", dest="weightsname", help="Weights file name", default="pytorch_model.bin")
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
@@ -67,24 +68,13 @@ EPOCHS = int(options.epochs)
 lr=float(options.lr)
 batch_size = int(options.batchsize)
 ROOT = options.rootpath
-path_data = os.path.join(ROOT, "data")
+path_data = os.path.join(ROOT, options.datapath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
 WEIGHTS_NAME = options.weightsname
 fold = int(options.fold)
 nbags= int(options.nbags)
 classes = 1109
 device = 'cuda'
-
-
-def random_flip(img, seed = 0):
-    random.seed(seed)
-    flipud_flag=bool(random.randint(0,1))
-    fliplr_flag = bool(random.randint(0, 1))
-    if flipud_flag:
-        img=np.flipud(img)
-    if fliplr_flag:
-        img=np.fliplr(img)
-    return img
 
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', site=1, channels=[1,2,3,4,5,6]):
