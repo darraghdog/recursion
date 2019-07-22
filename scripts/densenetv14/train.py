@@ -21,6 +21,12 @@ import datetime
 import torchvision
 from torchvision import transforms as T
 
+from albumentations import (Compose, Normalize, RandomRotate90, HorizontalFlip,
+                           VerticalFlip, ShiftScaleRotate, Transpose, OneOf, IAAAdditiveGaussianNoise,
+                           GaussNoise, RandomGamma, RandomContrast, RandomBrightness, HueSaturationValue,
+                           RandomCrop, Lambda, NoOp, CenterCrop, Resize
+                           )
+
 from tqdm import tqdm
 
 import warnings
@@ -122,7 +128,15 @@ class ImagesDS(D.Dataset):
         """
         return self.len
 
-
+def train_aug(p=1.):
+    return Compose([
+        RandomRotate90(),
+        HorizontalFlip(),
+        VerticalFlip(),
+        Transpose(),
+        NoOp(),
+    ], p=p)
+    
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
@@ -194,6 +208,11 @@ def prediction(model, loader):
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
+    
+logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
+
+transform = train_aug()
+
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
 train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
