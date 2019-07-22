@@ -161,8 +161,9 @@ class DensNet(nn.Module):
         self.features = preloaded.features
         self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
         #self.classifier = nn.Linear(1024, num_classes, bias=True)
-        self.classifier1 = nn.Linear(1024+4, 1024, bias=True)
-        self.classifier2 = nn.Linear(1024, num_classes, bias=True)
+        self.classifier1 = nn.Linear(1024+4, 1028)
+        self.dropout = nn.Dropout(0.2)
+        self.classifier2 = nn.Linear(1028, num_classes, bias=True)
         del preloaded
         
     def forward(self, x, exp):
@@ -171,8 +172,9 @@ class DensNet(nn.Module):
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
         #out = self.classifier(out)
         out = torch.cat([out, exp],1)
-        out = self.classifier1(out)
-        out = self.classifier2(out)
+        out = F.relu(self.classifier1(out))
+        out = self.dropout(out)
+        out = F.relu(self.classifier2(out))
         return out
 
 @torch.no_grad()

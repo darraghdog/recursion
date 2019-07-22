@@ -40,11 +40,12 @@ parser.add_option('-p', '--nbags', action="store", dest="nbags", help="Number of
 parser.add_option('-e', '--epochs', action="store", dest="epochs", help="epochs", default="5")
 parser.add_option('-b', '--batchsize', action="store", dest="batchsize", help="batch size", default="16")
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion/")
-parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/data/mount/512X512X6/")
+parser.add_option('-i', '--imgpath', action="store", dest="imgpath", help="root directory", default="data/mount/512X512X6/")
 parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Working path", default="densenetv1/weights")
 parser.add_option('-f', '--weightsname', action="store", dest="weightsname", help="Weights file name", default="pytorch_model.bin")
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
 parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate", default="0.00003")
+#parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/data/mount/512X512X6/")
 
 
 options, args = parser.parse_args()
@@ -74,13 +75,16 @@ EPOCHS = int(options.epochs)
 lr=float(options.lr)
 batch_size = int(options.batchsize)
 ROOT = options.rootpath
-path_data = os.path.join(ROOT, options.datapath)
+path_data = os.path.join(ROOT, 'data')
+path_img = os.path.join(ROOT, options.imgpath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
 WEIGHTS_NAME = options.weightsname
 fold = int(options.fold)
 nbags= int(options.nbags)
 classes = 1109
 device = 'cuda'
+print('Data path : {}'.format(path_data))
+print('Image path : {}'.format(path_img))
 
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', site=1, channels=[1,2,3,4,5,6]):
@@ -102,20 +106,20 @@ class ImagesDS(D.Dataset):
         img = T.Normalize([*list(mean_.values())], [*list(sd_.values())])(img)
         return img  
 
-    def _get_np_path(index):
-        experiment, well, plate, mode = records[index].experiment, \
-                                        records[index].well, \
-                                        records[index].plate, \
-                                        records[index].mode
+    def _get_np_path(self, index):
+        experiment, well, plate, mode = self.records[index].experiment, \
+                                        self.records[index].well, \
+                                        self.records[index].plate, \
+                                        self.records[index].mode
         # ,'mount1/512X512X6'
-        return '/'.join([img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{site}_w.pk'])
+        return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{self.site}_w.pk'])
     
     def __getitem__(self, index):
-        pathnp = _get_np_path(index)
+        pathnp = self._get_np_path(index)
         experiment, plate, _ = pathnp.split('/')[-3:]
         stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        img = _load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'])
+        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'])
         
         if self.mode == 'train':
             return img, self.records[index].sirna
@@ -254,9 +258,9 @@ trainfull = pd.concat([traindf,
                        test_ctrl.drop('well_type', 1)], 0)
 
 # ds = ImagesDS(traindf, path_data)
-ds = ImagesDS(trainfull, path_data)
-ds_val = ImagesDS(validdf, path_data, mode='train')
-ds_test = ImagesDS(test_df, path_data, mode='test')
+ds = ImagesDS(trainfull, path_img)
+ds_val = ImagesDS(validdf, path_img, mode='train')
+ds_test = ImagesDS(test_df, path_img, mode='test')
 
 
 logger.info('Set up model : time {}'.format(datetime.datetime.now().time()))

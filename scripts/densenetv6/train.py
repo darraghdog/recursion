@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import optparse
-import os, sys
+import os, sys, gc
 import numpy as np 
 import pandas as pd
 from PIL import Image
@@ -183,7 +183,7 @@ testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
 
-if True: # Sample test run
+if False: # Sample test run
     samp = random.sample(range(train_dfall.shape[0]), 1500)
     train_dfall = train_dfall.iloc[samp]
     testdf = testdf.iloc[:500]

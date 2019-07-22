@@ -13,6 +13,7 @@ import torch.utils.data as D
 import torch.nn.functional as F
 from sklearn.model_selection import KFold
 
+import gc
 import random
 import logging
 import datetime
@@ -182,9 +183,9 @@ testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
 
-if True: # Sample test run
-    samp = random.sample(range(train_dfall.shape[0]), 1500)
-    train_dfall = train_dfall.iloc[samp]
+if False: # Sample test run
+    #samp = random.sample(range(train_dfall.shape[0]), 1500)
+    train_dfall = train_dfall.iloc[np.where(train_dfall['sirna']<5)]
     testdf = testdf.iloc[:500]
 
 traindf = train_dfall[train_dfall['fold']!=fold]
@@ -269,7 +270,7 @@ for epoch in range(EPOCHS):
     probsbag = sum(probsls)/len(probsls)
     predsbag = np.argmax(probsbag, 1)
     matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    outmsg = 'Epoch {} -> Folds {} -> Accuracy: {:.4f} - NPreds {}'.format(epoch+1, tloss/tlen, fold, matchesbag/predsbag.shape[0], len(probsls))
+    outmsg = 'Epoch {} -> Fold {} -> Accuracy: {:.4f} - NPreds {}'.format(epoch+1, fold, matchesbag/predsbag.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))

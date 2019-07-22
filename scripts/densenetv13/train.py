@@ -248,6 +248,7 @@ trainfull = pd.concat([traindf,
                        test_ctrl.drop('well_type', 1)], 0)
 
 classes = 1+trainfull.sirna.max()
+logger.info('Number of classes : {}'.format(classes))
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_data)
 ds_val = ImagesDS(validdf, path_data, mode='train')
@@ -332,12 +333,14 @@ for epoch in range(EPOCHS):
     # Only argmax the non controls
     probsbag = probsbag[:,:1108]
     predsbagmax = np.argmax(probsbag, 1)
-    predsbag = single_pred(validdf, probsbag).astype(int)
+    #predsbag = single_pred(validdf, probsbag).astype(int)
     matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    outmsg = 'Epoch {} -> Fold {} -> Accuracy Sngl: {:.4f} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
-                    epoch+1, fold, matchesbag/predsbag.shape[0], matchesbagmax/predsbag.shape[0], len(probsls))
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
+    #matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
+    #outmsg = 'Epoch {} -> Fold {} -> Accuracy Sngl: {:.4f} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
+    #                epoch+1, fold, matchesbag/predsbag.shape[0], matchesbagmax/predsbag.shape[0], len(probsls))
+    outmsg = 'Epoch {} -> Fold {} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
+                    epoch+1, fold, matchesbagmax/predsbagmax.shape[0], len(probsls))
+    logger.info('{}'.format(outmsg))
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
 probsbag = sum(probststls)/len(probststls)
