@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.utils.data as D
 import torch.nn.functional as F
 from sklearn.model_selection import KFold
-import cv2
 
 import gc
 import random
@@ -22,7 +21,7 @@ import datetime
 import torchvision
 from torchvision import transforms as T
 
-from albumentations import (Cutout, Compose, Normalize, RandomRotate90, HorizontalFlip,
+from albumentations import (Compose, Normalize, RandomRotate90, HorizontalFlip,
                            VerticalFlip, ShiftScaleRotate, Transpose, OneOf, IAAAdditiveGaussianNoise,
                            GaussNoise, RandomGamma, RandomContrast, RandomBrightness, HueSaturationValue,
                            RandomCrop, Lambda, NoOp, CenterCrop, Resize
@@ -47,6 +46,9 @@ parser.add_option('-f', '--weightsname', action="store", dest="weightsname", hel
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
 parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate", default="0.00003")
 #parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/data/mount/512X512X6/")
+parser.add_option('-u', '--cutmix_prob', action="store", dest="cutmix_prob", help="Cutmix probability", default="0")
+parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta", default="0")
+
 
 
 options, args = parser.parse_args()
@@ -70,7 +72,8 @@ logger.info('Load params : time {}'.format(datetime.datetime.now().time()))
 for (k,v) in options.__dict__.items():
     logger.info('{}{}'.format(k.ljust(20), v))
 
-
+cutmix_prob = float(options.cutmix_prob)
+beta = float(options.beta)
 SEED = int(options.seed)
 EPOCHS = int(options.epochs)
 lr=float(options.lr)
@@ -97,11 +100,9 @@ class ImagesDS(D.Dataset):
         self.mode = mode
         self.img_dir = img_dir
         self.len = df.shape[0]
-        self.transform = train_aug()
-        if self.mode !='train': self.transform = test_aug()    
-
+    
     @staticmethod
-    def _load_img_as_tensor(file_name, transform, mean_, sd_):
+    def _load_img_as_tensor(file_name, mean_, sd_):
         img = loadobj(file_name)
         img = transform(image = img)['image']
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
@@ -123,9 +124,9 @@ class ImagesDS(D.Dataset):
         experiment, plate, _ = pathnp.split('/')[-3:]
         stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        img = self._load_img_as_tensor(pathnp, self.transform, stats_dict['Mean'], stats_dict['Std'])
+        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'])
         
-        if (self.mode == 'train') or  (self.mode == 'val'):
+        if self.mode == 'train':
             return img, self.records[index].sirna
         else:
             return img, self.records[index].id_code
@@ -136,14 +137,24 @@ class ImagesDS(D.Dataset):
         """
         return self.len
 
-def test_aug(p=1.):
-    return Compose([
-        RandomRotate90(),
-        HorizontalFlip(),
-        VerticalFlip(),
-        Transpose(),
-        NoOp(),
-    ], p=p)
+def rand_bbox(size, lam):
+    W = size[2]
+    H = size[3]
+    cut_rat = np.sqrt(1. - lam)
+    cut_w = np.int(W * cut_rat)
+    cut_h = np.int(H * cut_rat)
+
+    # uniform
+    cx = np.random.randint(W)
+    cy = np.random.randint(H)
+
+    bbx1 = np.clip(cx - cut_w // 2, 0, W)
+    bby1 = np.clip(cy - cut_h // 2, 0, H)
+    bbx2 = np.clip(cx + cut_w // 2, 0, W)
+    bby2 = np.clip(cy + cut_h // 2, 0, H)
+
+    return bbx1, bby1, bbx2, bby2
+
 
 def train_aug(p=1.):
     return Compose([
@@ -151,16 +162,7 @@ def train_aug(p=1.):
         HorizontalFlip(),
         VerticalFlip(),
         Transpose(),
-        Cutout(
-            num_holes=8,
-            max_h_size=24,
-            max_w_size=24,
-            fill_value=0,
-            always_apply=False,
-            p=0.3,
-        ),
-        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, 
-                         rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
+        NoOp(),
     ], p=p)
     
 def accuracy(output, target, topk=(1,)):
@@ -237,7 +239,7 @@ if not os.path.exists(WORK_DIR):
     
 logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
-#transform = train_aug()
+transform = train_aug()
 
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
@@ -318,16 +320,39 @@ for epoch in range(EPOCHS):
     acc = np.zeros(1)
     for x, y in loader: 
         x = x.to(device)
+        y = y.cuda()
+        # cutmix
+
         optimizer.zero_grad()
-        output = model(x)
-        #target = torch.zeros_like(output, device=device)
-        #target[np.arange(x.size(0)), y] = 1
-        #loss = criterion(output, target)
-        loss = criterion(output, y.cuda())
+        r = np.random.rand(1)
+
+        if beta > 0 and r < cutmix_prob:
+
+            # generate mixed sample
+            lam = np.random.beta(beta, beta)
+            rand_index = torch.randperm(x.size()[0]).cuda()
+            target_a = y
+            target_b = y[rand_index]
+            bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
+            x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
+            # compute output
+            input_var = torch.autograd.Variable(x, requires_grad=True)
+            target_a_var = torch.autograd.Variable(target_a)
+            target_b_var = torch.autograd.Variable(target_b)
+            output = model(input_var)
+            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
+
+        else:
+            # compute output
+            input_var = torch.autograd.Variable(x, requires_grad=True)
+            target_var = torch.autograd.Variable(y)
+            output = model(input_var)
+            loss = criterion(output, target_var)
+
         loss.backward()
         optimizer.step()
         tloss += loss.item() 
-        acc += accuracy(output.cpu(), y)
+        acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     #if epoch %5==0:
