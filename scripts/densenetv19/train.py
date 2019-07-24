@@ -345,6 +345,7 @@ for epoch in range(EPOCHS):
             # generate mixed sample
             lam = np.random.beta(beta, beta)
             rand_index = torch.randperm(x.size()[0]).cuda()
+            lam = max(lam, 1-lam)
             target_a = y
             target_b = y[rand_index]
             bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
