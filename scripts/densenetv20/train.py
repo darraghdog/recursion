@@ -13,6 +13,7 @@ import torch.utils.data as D
 import torch.nn.functional as F
 from sklearn.model_selection import KFold
 
+import cv2
 import gc
 import random
 import logging
@@ -21,7 +22,7 @@ import datetime
 import torchvision
 from torchvision import transforms as T
 
-from albumentations import (Compose, Normalize, RandomRotate90, HorizontalFlip,
+from albumentations import (Cutout, Compose, Normalize, RandomRotate90, HorizontalFlip,
                            VerticalFlip, ShiftScaleRotate, Transpose, OneOf, IAAAdditiveGaussianNoise,
                            GaussNoise, RandomGamma, RandomContrast, RandomBrightness, HueSaturationValue,
                            RandomCrop, Lambda, NoOp, CenterCrop, Resize
@@ -98,11 +99,13 @@ class ImagesDS(D.Dataset):
         self.channels = channels
         self.site = site
         self.mode = mode
+        self.transform = train_aug()
+        if self.mode != 'train' : self.transform = test_aug()
         self.img_dir = img_dir
         self.len = df.shape[0]
     
     @staticmethod
-    def _load_img_as_tensor(file_name, mean_, sd_):
+    def _load_img_as_tensor(file_name, mean_, sd_, transform):
         img = loadobj(file_name)
         img = transform(image = img)['image']
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
@@ -124,12 +127,20 @@ class ImagesDS(D.Dataset):
         experiment, plate, _ = pathnp.split('/')[-3:]
         stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'])
-        
-        if self.mode == 'train':
-            return img, self.records[index].sirna
+        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'], self.transform)
+       
+        imgout = torch.zeros(21, 256, 256)
+        imgout[0:6, :, :] = img
+        imgout[6:11, :, :]  = img[:5,:,:] - img[1:,:,:]
+        imgout[11:15, :, :] = img[:4,:,:] - img[2:,:,:]
+        imgout[15:18, :, :] = img[:3,:,:] - img[3:,:,:]
+        imgout[18:20, :, :] = img[:2,:,:] - img[4:,:,:]
+        imgout[20, :, :]    = img[:1,:,:] - img[5:,:,:]
+
+        if self.mode in ['train', 'val' ]:
+            return imgout, self.records[index].sirna
         else:
-            return img, self.records[index].id_code
+            return imgout, self.records[index].id_code
 
     def __len__(self):
         """
@@ -155,8 +166,7 @@ def rand_bbox(size, lam):
 
     return bbx1, bby1, bbx2, bby2
 
-
-def train_aug(p=1.):
+def test_aug(p=1.):
     return Compose([
         RandomRotate90(),
         HorizontalFlip(),
@@ -164,7 +174,32 @@ def train_aug(p=1.):
         Transpose(),
         NoOp(),
     ], p=p)
-    
+
+def train_aug(p=1.):
+    return Compose([
+        RandomRotate90(),
+        HorizontalFlip(),
+        VerticalFlip(),
+        Transpose(),
+        Cutout(
+            num_holes=8,
+            max_h_size=24,
+            max_w_size=24,
+            fill_value=0,
+            always_apply=False,
+            p=0.3,
+        ),
+        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, 
+                         rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
+    ], p=p)
+
+def add_sites(df):
+    df1 = df.copy()
+    df2 = df.copy()
+    df1['site'] = 1
+    df2['site'] = 2
+    return pd.concat([df1, df2], 0)
+
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
@@ -239,7 +274,7 @@ if not os.path.exists(WORK_DIR):
     
 logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
-transform = train_aug()
+#transform = train_aug()
 
 
 logger.info('Load Dataframes : time {}'.format(datetime.datetime.now().time()))
@@ -285,7 +320,7 @@ classes = trainfull.sirna.max() + 1
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_img)
-ds_val = ImagesDS(validdf, path_img, mode='train')
+ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
 
@@ -298,7 +333,7 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
-model = DensNet(num_classes=classes)
+model = DensNet(num_classes=classes, num_channels = 21)
 model.to(device)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=2)
@@ -309,19 +344,6 @@ criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-def exp_lr_scheduler(optimizer, epoch, init_lr=0.001, lr_decay_epoch=7):
-    """Decay learning rate by a factor of 0.1 every lr_decay_epoch epochs."""
-    lr = init_lr * (0.1**(epoch // lr_decay_epoch))
-
-    if epoch % lr_decay_epoch == 0:
-        print('LR is set to {}'.format(lr))
-
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-    return optimizer, lr
-
-
 logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
 tlen = len(loader)
 probsls = []
@@ -329,11 +351,8 @@ probststls = []
 ep_accls = []
 for epoch in range(EPOCHS):
     tloss = 0
-    #if epoch == 10:
-    #    lr *= .1
     model.train()
     acc = np.zeros(1)
-    optimizer, curr_lr  = exp_lr_scheduler(optimizer, epoch, init_lr = lr, lr_decay_epoch=50)
     for x, y in loader: 
         x = x.to(device)
         y = y.cuda()
@@ -347,18 +366,29 @@ for epoch in range(EPOCHS):
             # generate mixed sample
             lam = np.random.beta(beta, beta)
             rand_index = torch.randperm(x.size()[0]).cuda()
-            lam = max(lam, 1-lam)
             target_a = y
             target_b = y[rand_index]
             bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
+            # Cutmixup :)
+            '''
+            x1 = lam * x + (1 - lam) * x[rand_index] 
+            x2 = (1 - lam) * x + lam * x[rand_index]
+            x1 = x2[:, :, bbx1:bbx2, bby1:bby2]
+            '''
+            ## Mixup
+            #x = lam * x + (1 - lam) * x[rand_index]
+            ## Cutmix
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
             input_var = torch.autograd.Variable(x, requires_grad=True)
+            #input_var = torch.autograd.Variable(x1, requires_grad=True)
             target_a_var = torch.autograd.Variable(target_a)
             target_b_var = torch.autograd.Variable(target_b)
             output = model(input_var)
-            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
 
+            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
+            ## Cutmixup 
+            #loss = criterion(output, target_a_var) * 0.5 + criterion(output, target_b_var) * 0.5
         else:
             # compute output
             input_var = torch.autograd.Variable(x, requires_grad=True)
@@ -374,9 +404,9 @@ for epoch in range(EPOCHS):
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     #if epoch %5==0:
     #    torch.save(model.state_dict(), output_model_file)
-    outmsg = 'Epoch {} -> LR {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, curr_lr, tloss/tlen, acc[0]/tlen)
+    outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-    if epoch < 30:
+    if epoch < 20:
         continue
     model.eval()
     print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
@@ -412,8 +442,8 @@ for epoch in range(EPOCHS):
     #matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
     #outmsg = 'Epoch {} -> Fold {} -> Accuracy Sngl: {:.4f} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
     #                epoch+1, fold, matchesbag/predsbag.shape[0], matchesbagmax/predsbag.shape[0], len(probsls))
-    outmsg = 'Epoch {} -> Current LR {} -> Fold {} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
-                    epoch+1, curr_lr, fold, matchesbagmax/predsbagmax.shape[0], len(probsls))
+    outmsg = 'Epoch {} -> Fold {} -> Accuracy Max: {:.4f} - NPreds {}'.format(\
+                    epoch+1, fold, matchesbagmax/predsbagmax.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
 logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
@@ -424,5 +454,5 @@ probsbag = probsbag[:,:1108]
 submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = single_pred(submission, probsbag).astype(int)
 # submission['sirna'] = predsbag.astype(int)
-submission.to_csv('submission_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
+submission.to_csv('mixme_cutme_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
 
