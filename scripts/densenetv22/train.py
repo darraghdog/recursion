@@ -105,9 +105,11 @@ class ImagesDS(D.Dataset):
         self.len = df.shape[0]
     
     @staticmethod
-    def _load_img_as_tensor(file_name, mean_, sd_, transform):
+    def _load_img_as_tensor(file_name, mean_, sd_, illum_correction, transform):
         img = loadobj(file_name)
         img = transform(image = img)['image']
+        img = img.astype(np.float32)
+        img = img / illum_correction     
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
         img /= 255.
         img = T.Normalize([*list(mean_.values())], [*list(sd_.values())])(img)
@@ -126,9 +128,16 @@ class ImagesDS(D.Dataset):
     def __getitem__(self, index):
         pathnp = self._get_np_path(index)
         experiment, plate, _ = pathnp.split('/')[-3:]
-        stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
-        statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'], self.transform)
+        #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
+        #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
+        stype = self.mode if self.mode!='val' else 'train'
+        stats_key = '{}/{}/{}/Plate{}'.format(options.imgpath.split('/')[2], stype, experiment, plate)
+        stats_dict = illumpk[stats_key]
+        img = self._load_img_as_tensor(pathnp, 
+                                       stats_dict['mean'], 
+                                       stats_dict['std'], 
+                                       stats['illum_correction_function'],
+                                       self.transform)
         
         if self.mode in ['train', 'val' ]:
             return img, self.records[index].sirna
@@ -298,7 +307,12 @@ if False: # Sample test run
     train_dfall = train_dfall.iloc[np.where(train_dfall['sirna']<5)]
     test_df = test_df.iloc[:500]
 
-logger.info('Calculate stats: time {}'.format(datetime.datetime.now().time()))
+logger.info('Load illumination stats')
+illumfile = 'illumsttats_{}.pk'.format(options.imgpath.split('/')[2])
+illumpk = loadobj(os.path.join( path_data, illumfile))
+
+
+logger.info('Calculate stats')
 
 statsdf['experiment'] = statsdf['FileName'].apply(lambda x: x.split('/')[-3])
 statsdf['plate'] = statsdf['FileName'].apply(lambda x: x.split('/')[-2])
@@ -333,7 +347,7 @@ ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
 
-logger.info('Set up model : time {}'.format(datetime.datetime.now().time()))
+logger.info('Set up model')
 
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -353,7 +367,7 @@ criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
+logger.info('Start training')
 tlen = len(loader)
 probsls = []
 probststls = []
@@ -442,7 +456,7 @@ for epoch in range(EPOCHS):
 dumpobj(os.path.join( WORK_DIR, 'val_prods_fold{}.pk'.format(fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_prods_fold{}.pk'.format(fold)), probststls)
 
-logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
+logger.info('Submission')
 probsbag = sum(probststls)/len(probststls)
 probsbag = probsbag[:,:1108]
 
