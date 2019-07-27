@@ -112,7 +112,7 @@ class ImagesDS(D.Dataset):
         img = img / illum_correction     
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
         img /= 255.
-        img = T.Normalize([*list(mean_.values())], [*list(sd_.values())])(img)
+        img = T.Normalize([*list(mean_)], [*list(sd_)])(img)
         return img  
 
     def _get_np_path(self, index):
@@ -130,13 +130,12 @@ class ImagesDS(D.Dataset):
         experiment, plate, _ = pathnp.split('/')[-3:]
         #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        stype = self.mode if self.mode!='val' else 'train'
-        stats_key = '{}/{}/{}/Plate{}'.format(options.imgpath.split('/')[2], stype, experiment, plate)
+        stats_key = 'data/mount/{}//{}/{}/{}'.format(options.imgpath.split('/')[2], self.records[index].mode, experiment, plate)
         stats_dict = illumpk[stats_key]
         img = self._load_img_as_tensor(pathnp, 
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
-                                       stats['illum_correction_function'],
+                                       stats_dict['illum_correction_function'],
                                        self.transform)
         
         if self.mode in ['train', 'val' ]:
@@ -311,6 +310,8 @@ logger.info('Load illumination stats')
 illumfile = 'illumsttats_{}.pk'.format(options.imgpath.split('/')[2])
 illumpk = loadobj(os.path.join( path_data, illumfile))
 
+
+logger.info([i for i in illumpk.keys()][:5])
 
 logger.info('Calculate stats')
 
