@@ -1,3 +1,5 @@
+import torch
+import datetime
 # https://stackoverflow.com/a/28520445
 import pandas as pd
 import pickle
@@ -116,14 +118,14 @@ class IlluminationStatistics():
             lower[i] = percentile(probs, 0.0001)
             upper[i] = percentile(probs, 0.9999)
         stats = {"mean_values": mean, "upper_percentiles": upper, "lower_percentiles": lower, "histogram": self.hist,
-                 "mean_image": self.mean_image, "channels": self.channels, "original_size": self.original_image_size}
+                 "mean_image": self.mean_image.astype(np.float32), "channels": self.channels, "original_size": self.original_image_size}
         # Compute illumination correction function and add it to the dictionary
         correct = IlluminationCorrection(stats, self.channels, self.original_image_size)
         correct.compute_all(self.median_filter_size)
         stats["illum_correction_function"] = correct.illum_corr_func
 
         # Plate ready
-        print("Plate " + self.name + " done")
+        #print("Plate " + self.name + " done")
         return stats
 
     def processImage(self, index, img):
@@ -133,7 +135,7 @@ class IlluminationStatistics():
         self.count += 1
         for i in range(len(self.channels)):
             counts = np.histogram(img[:, :, i], bins=self.depth, range=(0, self.depth))[0]
-            self.hist[i] += counts.astype(np.float64)
+            self.hist[i] += counts.astype(np.float32)
             
             
 class IlluminationCorrection(object):
@@ -150,9 +152,10 @@ class IlluminationCorrection(object):
         operator = skimage.morphology.disk(disk_size)
         filtered_channel = skimage.filters.median(mean_channel.astype(np.uint16), operator)
         robust_minimum = scipy.stats.scoreatpercentile(filtered_channel, 2)
+        robust_minimum = max(0.5, robust_minimum)
         filtered_channel = np.maximum(filtered_channel, robust_minimum)
         illum_corr_func = filtered_channel / robust_minimum
-        return illum_corr_func
+        return illum_corr_func.astype(np.float32)
 
     def compute_all(self, median_filter_size):
         disk_size = median_filter_size / 2  # From diameter to radius
@@ -170,27 +173,46 @@ trncdf['type'] = 'train'
 tstcdf['type'] = 'test'
 alldf = pd.concat([trncdf, tstcdf]).drop_duplicates().reset_index(drop=True)
 
-#alldf = alldf[alldf['experiment'] == 'HEPG2-01']
-
 statdict = {}
 for t, row in alldf.iterrows():
     img_dir = '{}/{}/{}/Plate{}'.format(options.imgpath, row[-1], *row[:2])
-    img_names = [i for i in os.listdir(os.path.join(path_data, img_dir))]
+    #if 'HUVEC-19' not in img_dir:
+    #    continue
+    logger.info(img_dir)
+    img_names = [i for i in os.listdir(os.path.join(ROOT, img_dir))]
     illuminstat = IlluminationStatistics(bits = 8, 
                            channels=[0,1,2,3,4,5], 
                            down_scale_factor=1, 
-                           median_filter_size =24, 
+                           median_filter_size =32, 
                            name='\t'+img_dir)
     for t, imf in enumerate(tqdm(img_names)):  
-        fname = os.path.join(PATH, img_dir, imf)
+        fname = os.path.join(ROOT, img_dir, imf)
         img = loadobj(fname)
         illuminstat.processImage(0, img)  
     stats = illuminstat.computeStats()
+    # Calculate mean and std
+    stats['mean'] = np.zeros(len(illuminstat.channels))
+    stats['std'] = np.zeros(len(illuminstat.channels))
+    nb_samples = 0
+    for t, imf in enumerate(tqdm(img_names)):  
+        fname = os.path.join(ROOT, img_dir, imf)
+        img = loadobj(fname)
+        img = img.astype(np.float32)
+        img = img / stats['illum_correction_function']
+        img = np.moveaxis(img, -1, 0)
+        img /= 255.
+        stats['mean'] += img.mean((1,2))
+        stats['std'] += img.std((1,2))
+        nb_samples += 1
+    stats['mean'] /= nb_samples
+    stats['std'] /= nb_samples
+    # Add Plate to dictionary
     statdict[img_dir] = stats
-    
-outfile = path_data+'/illumsttats_{}.pk'.format(options.imgpath)
-dumpobj(outfile , statdict)
 
+logger.info('Write pickle')
+outfile = path_data+'/illumsttats_{}.pk'.format(options.imgpath.split('/')[2])
+dumpobj(outfile , statdict)
+logger.info('All done')
 '''
 img= loadobj(imnames[100])
 x1 = rio.convert_tensor_to_rgb(img, dim = 256)
