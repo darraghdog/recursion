@@ -105,15 +105,12 @@ class ImagesDS(D.Dataset):
         self.len = df.shape[0]
     
     @staticmethod
-    def _load_img_as_tensor(file_name, mean_, sd_, illum_correction, transform):
+    def _load_img_as_tensor(file_name, mean_, sd_, transform):
         img = loadobj(file_name)
-        #img = transform(image = img)['image']
-        img = img.astype(np.float32)
-        img = img / illum_correction     
         img = transform(image = img)['image']
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
         img /= 255.
-        img = T.Normalize([*list(mean_)], [*list(sd_)])(img)
+        img = T.Normalize([*list(mean_.values())], [*list(sd_.values())])(img)
         return img  
 
     def _get_np_path(self, index):
@@ -129,15 +126,9 @@ class ImagesDS(D.Dataset):
     def __getitem__(self, index):
         pathnp = self._get_np_path(index)
         experiment, plate, _ = pathnp.split('/')[-3:]
-        #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
-        #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        stats_key = 'data/mount/{}//{}/{}/{}'.format(options.imgpath.split('/')[2], self.records[index].mode, experiment, plate)
-        stats_dict = illumpk[stats_key]
-        img = self._load_img_as_tensor(pathnp, 
-                                       stats_dict['mean'], 
-                                       stats_dict['std'], 
-                                       stats_dict['illum_correction_function'],
-                                       self.transform)
+        stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
+        statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
+        img = self._load_img_as_tensor(pathnp, stats_dict['Mean'], stats_dict['Std'], self.transform)
         
         if self.mode in ['train', 'val' ]:
             return img, self.records[index].sirna
@@ -278,7 +269,7 @@ def prediction(model, loader):
         preds = np.append(preds, idx, axis=0)
         probs.append(outmat)
     probs = np.concatenate(probs, 0)
-    #print(probs.shape)    
+    print(probs.shape)    
     return preds, probs
 
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
@@ -307,14 +298,7 @@ if False: # Sample test run
     train_dfall = train_dfall.iloc[np.where(train_dfall['sirna']<5)]
     test_df = test_df.iloc[:500]
 
-logger.info('Load illumination stats')
-illumfile = 'mount/illumsttats_{}.pk'.format(options.imgpath.split('/')[2])
-illumpk = loadobj(os.path.join( path_data, illumfile))
-
-
-logger.info([i for i in illumpk.keys()][:5])
-
-logger.info('Calculate stats')
+logger.info('Calculate stats: time {}'.format(datetime.datetime.now().time()))
 
 statsdf['experiment'] = statsdf['FileName'].apply(lambda x: x.split('/')[-3])
 statsdf['plate'] = statsdf['FileName'].apply(lambda x: x.split('/')[-2])
@@ -349,7 +333,7 @@ ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
 
-logger.info('Set up model')
+logger.info('Set up model : time {}'.format(datetime.datetime.now().time()))
 
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -365,11 +349,23 @@ loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=2)
 vloader = D.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=2)
 tloader = D.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=2)
 
+def add_weight_decay(net, l2_value, skip_list=()):
+    decay, no_decay = [], []
+    for name, param in net.named_parameters():
+        if not param.requires_grad: continue # frozen weights		            
+        if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list: no_decay.append(param)
+        else: decay.append(param)
+    return [{'params': no_decay, 'weight_decay': 0.}, {'params': decay, 'weight_decay': l2_value}]
+
+model = DensNet(num_classes=classes)
+model.to(device)
+optimizer_grouped_parameters = add_weight_decay(model, lr)
+
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=lr)
 
-logger.info('Start training')
+logger.info('Start training : time {}'.format(datetime.datetime.now().time()))
 tlen = len(loader)
 probsls = []
 probststls = []
@@ -434,13 +430,11 @@ for epoch in range(EPOCHS):
     if epoch < 0:
         continue
     model.eval()
-    #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
+    print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
     preds, probs = prediction(model, vloader)
     probsls.append(compress_sites(probs))
     preds, probs = prediction(model, tloader)
     probststls.append(compress_sites(probs))
-    probststls = probststls[-nbags:]
-    probsls = probsls[-nbags:]
     gc.collect()
     probsbag = sum(probsls)/len(probsls)
     # Only argmax the non controls
@@ -460,7 +454,7 @@ for epoch in range(EPOCHS):
 dumpobj(os.path.join( WORK_DIR, 'val_prods_fold{}.pk'.format(fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_prods_fold{}.pk'.format(fold)), probststls)
 
-logger.info('Submission')
+logger.info('Submission : time {}'.format(datetime.datetime.now().time()))
 probsbag = sum(probststls)/len(probststls)
 probsbag = probsbag[:,:1108]
 

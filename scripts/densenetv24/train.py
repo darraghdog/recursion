@@ -49,6 +49,7 @@ parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate",
 #parser.add_option('-d', '--datapath', action="store", dest="datapath", help="root directory", default="/data/mount/512X512X6/")
 parser.add_option('-u', '--cutmix_prob', action="store", dest="cutmix_prob", help="Cutmix probability", default="0")
 parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta", default="0")
+parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_512_")
 
 
 
@@ -84,6 +85,7 @@ path_data = os.path.join(ROOT, 'data')
 path_img = os.path.join(ROOT, options.imgpath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
 WEIGHTS_NAME = options.weightsname
+PROBS_NAME = options.probsname
 fold = int(options.fold)
 nbags= int(options.nbags)
 #classes = 1109
@@ -131,8 +133,11 @@ class ImagesDS(D.Dataset):
         experiment, plate, _ = pathnp.split('/')[-3:]
         #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
-        stats_key = 'data/mount/{}//{}/{}/{}'.format(options.imgpath.split('/')[2], self.records[index].mode, experiment, plate)
-        stats_dict = illumpk[stats_key]
+        stats_key = '{}/{}/{}'.format(experiment, plate[-1], self.records[index].mode )
+        # We use different filter sizes to do illumination correction to mix it up a bit
+        rand_filter = random.randint(0,2)
+        stats_dict = illumpk[rand_filter][stats_key]
+
         img = self._load_img_as_tensor(pathnp, 
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
@@ -308,14 +313,11 @@ if False: # Sample test run
     test_df = test_df.iloc[:500]
 
 logger.info('Load illumination stats')
-illumfile = 'mount/illumsttats_{}.pk'.format(options.imgpath.split('/')[2])
-illumpk = loadobj(os.path.join( path_data, illumfile))
-
-
-logger.info([i for i in illumpk.keys()][:5])
+illumfiles = dict((i, 'mount/illumsttats_fs{}_{}.pk'.format((2**(i+4)), options.imgpath.split('/')[2])) for i in range(3))
+illumpk = dict((i, loadobj(os.path.join( path_data, illumfiles[i]))) for i in range(3))
+logger.info([i for i in illumpk[0].keys()][:5])
 
 logger.info('Calculate stats')
-
 statsdf['experiment'] = statsdf['FileName'].apply(lambda x: x.split('/')[-3])
 statsdf['plate'] = statsdf['FileName'].apply(lambda x: x.split('/')[-2])
 statsdf['fname'] = statsdf['FileName'].apply(lambda x: x.split('/')[-1])
@@ -457,8 +459,8 @@ for epoch in range(EPOCHS):
                     epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
-dumpobj(os.path.join( WORK_DIR, 'val_prods_fold{}.pk'.format(fold)), probsls)
-dumpobj(os.path.join( WORK_DIR, 'tst_prods_fold{}.pk'.format(fold)), probststls)
+dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
+dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
 
 logger.info('Submission')
 probsbag = sum(probststls)/len(probststls)

@@ -1,5 +1,5 @@
 N_GPU=1
-WDIR='densenetv22'
+WDIR='densenetv24'
 FOLD=0
 
 bsub  -q lowpriority -gpu "num=$N_GPU:mode=exclusive_process" -app gpu -n =$N_GPU  -env LSB_CONTAINER_IMAGE=docker.optum.com/dhanley2/bert:cgan_build \
