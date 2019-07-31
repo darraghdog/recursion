@@ -242,10 +242,14 @@ def accuracy(output, target, topk=(1,)):
 class DensNet(nn.Module):
     def __init__(self, num_classes=1000, num_channels=6):
         super().__init__()
-        preloaded = torchvision.models.densenet121(pretrained=True)
+        #preloaded = torchvision.models.densenet121(pretrained=True)
+        preloaded = torchvision.models.densenet169(pretrained=True)
+        #preloaded = torchvision.models.densenet201(pretrained=True)
         self.features = preloaded.features
         self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
-        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        #self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.classifier = nn.Linear(1664, num_classes, bias=True)
+        #self.classifier = nn.Linear(1920, num_classes, bias=True)
         del preloaded
         
     def forward(self, x):
@@ -445,8 +449,8 @@ for epoch in range(EPOCHS):
         acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    if epoch % 20 == 19 :
-        torch.save(model.state_dict(), output_model_file)
+    #if epoch %5==0:
+    #    torch.save(model.state_dict(), output_model_file)
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
     if epoch < 0:

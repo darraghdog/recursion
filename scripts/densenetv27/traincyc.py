@@ -61,7 +61,7 @@ package_dir = options.rootpath
 sys.path.append(package_dir)
 from logs import get_logger
 from utils import dumpobj, loadobj, GradualWarmupScheduler
-
+from lr_finder import LRFinder
 
 # Print info about environments
 logger = get_logger(options.logmsg, 'INFO') # noqa
@@ -376,8 +376,9 @@ criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
-scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=10, after_scheduler=scheduler_cosine)
+#scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
+#scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=10, after_scheduler=scheduler_cosine)
+lr_finder = LRFinder(model, optimizer, criterion, device="cuda")
 
 
 
@@ -387,14 +388,14 @@ probsls = []
 probststls = []
 ep_accls = []
 for epoch in range(EPOCHS):
-    scheduler_warmup.step()
+    #scheduler_warmup.step()
     tloss = 0
     model.train()
     acc = np.zeros(1)
 
-    for param_group in optimizer.param_groups:
-        logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))
-
+    #for param_group in optimizer.param_groups:
+    #    logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))
+    
 
     for x, y in loader: 
         x = x.to(device)
@@ -445,8 +446,8 @@ for epoch in range(EPOCHS):
         acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    if epoch % 20 == 19 :
-        torch.save(model.state_dict(), output_model_file)
+    #if epoch %5==0:
+    #    torch.save(model.state_dict(), output_model_file)
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
     if epoch < 0:

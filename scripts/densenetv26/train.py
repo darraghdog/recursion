@@ -373,10 +373,11 @@ log_lrs = []
 wdls = []
 bdls = []
 decays = [1e-2, 1e-3, 1e-4, 0.]
+momentums = [0.8, 0.9, 0.92, 0.95, 0.98,  0.99, 0.99]
 decay_pairs = []
 for d in decays:
-    decay_pairs.append((d,0.))
-    decay_pairs.append((d,0.2))
+    for momentum in  momentums:
+        decay_pairs.append((d,momentum))
 accumulation = 1
 
 model = DensNet(num_classes=classes)
@@ -392,11 +393,11 @@ for decays  in decay_pairs :
 
     param_optimizer = list(model.named_parameters())
     no_decay = ['norm', 'bias']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': weight_decay},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': bias_decay}
-        ]
-    optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=lr, weight_decay = weight_decay)
+    #optimizer_grouped_parameters = [
+    #    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': weight_decay},
+    #    {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': bias_decay}
+    #    ]
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, momentum = bias_decay)# weight_decay = weight_decay)
     ######One Cycle Policy##########>
     # https://sgugger.github.io/the-1cycle-policy.html#the-1cycle-policy
     # add Weight decay and learning rate
@@ -489,7 +490,7 @@ for decays  in decay_pairs :
         #Update the lr for the next step
         lrtmp *= mult
         optimizer.param_groups[0]['lr'] = lrtmp   
-        lossdf = pd.DataFrame({'bias_decay':bdls, 'weight_decay': wdls, 'lr_log10':log_lrs, 'losses':losses})
+        lossdf = pd.DataFrame({'momentum':bdls, 'weight_decay': wdls, 'lr_log10':log_lrs, 'losses':losses})
         logger.info(lossdf.tail(1))
         ######One Cycle Policy##########<
         
