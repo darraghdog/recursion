@@ -111,6 +111,8 @@ class ImagesDS(D.Dataset):
         if self.mode != 'train' : self.transform = test_aug()
         self.img_dir = img_dir
         self.len = df.shape[0]
+        logger.info('ImageDS Shape')
+        logger.info(self.len)
     
     @staticmethod
     def _load_img_as_tensor(file_name, mean_, sd_, illum_correction, transform):
@@ -141,7 +143,9 @@ class ImagesDS(D.Dataset):
                                         self.records[index].plate, \
                                         self.records[index].mode, \
                                         self.records[index].site
-        well = self.negdf.loc['HUVEC-24', 4].sample(n=1).iloc[0]['well']
+        
+        well = self.negdf.loc[experiment, plate].sample(n=1).iloc[0]['well']
+        mode = 'train' if self.mode in ['train', 'val' ] else 'test'
         # ,'mount1/512X512X6'
         return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{site}_w.pk'])
     
@@ -308,15 +312,19 @@ def single_pred(dffold, probs):
 def prediction(model, loader):
     preds = np.empty(0)
     probs = []
-    for x, _ in loader:
+    for t, (x, xneg,  _) in enumerate(loader):
+        #logger.info(t, x.shape, xneg.shape)
         x = x.to(device)
-        output = model(x)
+        xneg = xneg.to(device)
+        output = model(x, xneg)
         idx = output.max(dim=-1)[1].cpu().numpy()
         outmat = torch.sigmoid(output.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
         probs.append(outmat)
     probs = np.concatenate(probs, 0)
-    #print(probs.shape)    
+    logger.info('Pred shape')
+    logger.info(probs.shape)    
+    logger.info(50*'|')
     return preds, probs
 
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
@@ -329,8 +337,8 @@ logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time(
 
 
 logger.info('Load Dataframes')
-train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
-test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))
+train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:300]
+test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))#.iloc[:300]
 train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
@@ -341,8 +349,8 @@ trnix = train_ctrl['well_type']=='negative_control'
 tstix = test_ctrl['well_type']=='negative_control'
 negdf = pd.concat([train_ctrl[trnix].reset_index(drop=True),
                    test_ctrl[tstix].reset_index(drop=True)])
-train_ctrl = train_ctrl[~trnix].reset_index(drop=True)
-test_ctrl = test_ctrl[~tstix].reset_index(drop=True)
+train_ctrl = train_ctrl[~trnix].reset_index(drop=True)#.iloc[:300]
+test_ctrl = test_ctrl[~tstix].reset_index(drop=True)#.iloc[:300]
 negdf = negdf.set_index(['experiment', 'plate'])
 
 
@@ -369,9 +377,17 @@ stats_dict = statsgrpdf.loc[(experiment_, plate_)].to_dict()
 print(stats_dict)
 
 
+logger.info('******** Checking Fold Counts **********')
+logger.info(train_dfall['fold'].value_counts())
+
 traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
 y_val = validdf.sirna.values
+
+#logger.info('******** Checking Input Data Shapes - Part 1 **********')
+#logger.info(validdf.shape)
+#logger.info(test_df.shape)
+#logger.info(y_val.shape)
 
 # Add the controls
 #train_ctrl.sirna = 1108
@@ -383,15 +399,20 @@ trainfull = pd.concat([traindf,
                         test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
 
-trainfull = add_sites(trainfull)
-validdf = add_sites(validdf)
-test_df = add_sites(test_df)
+trainfull = add_sites(trainfull)#.iloc[:300]
+validdf = add_sites(validdf)#.iloc[:300]
+test_df = add_sites(test_df)#.iloc[:300]
+#y_val = y_val [:150]      
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, negdf, path_img)
 ds_val = ImagesDS(validdf, negdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, negdf, path_img, mode='test')
 
+logger.info('******** Checking Input Data Shapes - Part 2 **********')
+logger.info(trainfull.shape)
+logger.info(validdf.shape)
+logger.info(test_df.shape)
 
 logger.info('Set up model')
 
@@ -461,20 +482,22 @@ for epoch in range(EPOCHS):
             ## Cutmix
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
-            input_var = torch.autograd.Variable(x, xneg, requires_grad=True)
+            input_var = torch.autograd.Variable(x, requires_grad=True)
+            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True)
             #input_var = torch.autograd.Variable(x1, requires_grad=True)
             target_a_var = torch.autograd.Variable(target_a)
             target_b_var = torch.autograd.Variable(target_b)
-            output = model(input_var)
+            output = model(input_var, input_var_neg)
 
             loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
             ## Cutmixup 
             #loss = criterion(output, target_a_var) * 0.5 + criterion(output, target_b_var) * 0.5
         else:
             # compute output
-            input_var = torch.autograd.Variable(x, xneg, requires_grad=True)
+            input_var = torch.autograd.Variable(x, requires_grad=True)
+            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True)
             target_var = torch.autograd.Variable(y)
-            output = model(input_var)
+            output = model(input_var, input_var_neg)
             loss = criterion(output, target_var)
 
         loss.backward()
@@ -493,8 +516,10 @@ for epoch in range(EPOCHS):
     #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
     preds, probs = prediction(model, vloader)
     probsls.append(compress_sites(probs))
+    logger.info(probsls[-1].shape)
     preds, probs = prediction(model, tloader)
     probststls.append(compress_sites(probs))
+    logger.info(probststls[-1].shape)
     probststls = probststls[-nbags:]
     probsls = probsls[-nbags:]
     gc.collect()
@@ -504,6 +529,10 @@ for epoch in range(EPOCHS):
     predsmax = np.argmax(probsls[-1][:,:1108], 1)
     predsbagmax = np.argmax(probsbag, 1)
     #predsbag = single_pred(validdf, probsbag).astype(int)
+    #logger.info('Check predictions')
+    #logger.info(y_val.shape)
+    #logger.info(predsmax.flatten().shape)
+
     matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
     matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
     #matchesbag = (predsbag.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    

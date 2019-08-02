@@ -372,12 +372,12 @@ losses = []
 log_lrs = []
 wdls = []
 bdls = []
-decays = [1e-2, 1e-3, 1e-4, 0.]
-momentums = [0.8, 0.9, 0.92, 0.95, 0.98,  0.99, 0.99]
-decay_pairs = []
-for d in decays:
-    for momentum in  momentums:
-        decay_pairs.append((d,momentum))
+decays = [ 0.]
+#momentums = [0.8, 0.9, 0.92, 0.95, 0.98,  0.99, 0.99]
+decay_pairs = [0.]
+#for d in decays:
+#    for momentum in  momentums:
+#    decay_pairs.append((d,momentum))
 accumulation = 1
 
 model = DensNet(num_classes=classes)
@@ -385,7 +385,7 @@ model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 for decays  in decay_pairs :
-    weight_decay, bias_decay  = decays
+    bias_decay = weight_decay  = decays
     del model, optimizer 
     torch.cuda.empty_cache()
     model = DensNet(num_classes=classes)
@@ -397,7 +397,7 @@ for decays  in decay_pairs :
     #    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': weight_decay},
     #    {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': bias_decay}
     #    ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, momentum = bias_decay)# weight_decay = weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay = weight_decay)
     ######One Cycle Policy##########>
     # https://sgugger.github.io/the-1cycle-policy.html#the-1cycle-policy
     # add Weight decay and learning rate
