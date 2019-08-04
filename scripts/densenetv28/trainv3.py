@@ -287,7 +287,7 @@ class DensNet(nn.Module):
         
         #MSE between sample and negatives
         out_neg = out - out_neg 
-        out_neg = torch.mul(out_neg,out_neg)
+        #out_neg = torch.mul(out_neg,out_neg)
         
         out = torch.cat((out_neg, out), 1)
         
@@ -359,31 +359,19 @@ negdf = pd.concat([train_ctrl[trnix].reset_index(drop=True),
 train_ctrl = train_ctrl[~trnix].reset_index(drop=True)#.iloc[:300]
 test_ctrl = test_ctrl[~tstix].reset_index(drop=True)#.iloc[:300]
 
-logger.info('Remove TOP positive controls')
-trnix = train_ctrl['sirna']==1122
-tstix = test_ctrl['sirna']==1122
-posdf = pd.concat([train_ctrl[trnix].reset_index(drop=True),
-                   test_ctrl[tstix].reset_index(drop=True)])
-train_ctrl = train_ctrl[~trnix].reset_index(drop=True)#.iloc[:300]
-test_ctrl = test_ctrl[~tstix].reset_index(drop=True)#.iloc[:300]
-
-
-
 logger.info('Load negatives to memoryin the data frame')
-def add_pickles(negdf):
-    negdf = add_sites(negdf)
-    modes = dict([(e, 'train') for e in train_ctrl.experiment.unique()]+[(e, 'test') for e in test_ctrl.experiment.unique()])
-    imgls=[]
-    for t, row in negdf.iterrows():
-        experiment, plate, well, site = row[['experiment', 'plate', 'well', 'site']].tolist()
-        mode = modes[experiment]
-        fname = os.path.join(path_img, '{}/{}/Plate{}/{}_s{}_w.pk'.format(mode, experiment, plate, well, site))
-        imgls.append(loadobj(fname))
-    negdf['imgpk'] = imgls
-    negdf = negdf.set_index(['experiment', 'plate'])
-    return negdf
-negdf = add_pickles(negdf)
-posdf = add_pickles(posdf)
+negdf = add_sites(negdf)
+modes = dict([(e, 'train') for e in train_ctrl.experiment.unique()]+[(e, 'test') for e in test_ctrl.experiment.unique()])
+imgls=[]
+for t, row in negdf.iterrows():
+    experiment, plate, well, site = row[['experiment', 'plate', 'well', 'site']].tolist()
+    mode = modes[experiment]
+    fname = os.path.join(path_img, '{}/{}/Plate{}/{}_s{}_w.pk'.format(mode, experiment, plate, well, site))
+    imgls.append(loadobj(fname))
+negdf['imgpk'] = imgls
+del imgls
+gc.collect()
+negdf = negdf.set_index(['experiment', 'plate'])
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
