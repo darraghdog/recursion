@@ -35,6 +35,7 @@ from apex.parallel import DistributedDataParallel as DDP
 from apex.fp16_utils import *
 from apex import amp, optimizers
 from apex.multi_tensor_apply import multi_tensor_applier
+from apex.optimizers.fused_adam import FusedAdam
 
 
 import warnings
@@ -427,17 +428,19 @@ model = DensNet(num_classes=classes)
 model.to(device)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*8, shuffle=False, num_workers=5)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*8, shuffle=False, num_workers=5)
+vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+#optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=15, after_scheduler=scheduler_cosine)
 
-model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
+model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
+
 
 logger.info('Start training')
 tlen = len(loader)
