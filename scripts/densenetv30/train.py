@@ -124,8 +124,6 @@ class ImagesDS(D.Dataset):
         img = torch.from_numpy(np.moveaxis(img, -1, 0).astype(np.float32))
         img /= 255.
         img = T.Normalize([*list(mean_)], [*list(sd_)])(img)
-        if PRECISION=='half':
-            img=img.half()
         return img  
 
     def _get_np_path(self, index):
@@ -316,9 +314,9 @@ def prediction(model, loader):
     probs = []
     for t, (x, xneg,  _) in enumerate(loader):
         #logger.info(t, x.shape, xneg.shape)
-        x = x.to(device)
-        xneg = xneg.to(device)
-        output = model(x, xneg)
+        x = x.to(device).half()
+        xneg = xneg.to(device).half()
+        output = model(x, xneg).float()
         idx = output.max(dim=-1)[1].cpu().numpy()
         outmat = torch.sigmoid(output.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
@@ -336,7 +334,7 @@ logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time(
 
 
 logger.info('Load Dataframes')
-train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:300]
+train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
 test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))#.iloc[:300]
 train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
@@ -420,8 +418,7 @@ if n_gpu > 0:
 torch.backends.cudnn.deterministic = True
 
 model = DensNet(num_classes=classes)
-if PRECISION=='half':
-    model=model.half()
+model= model.half()
 model.to(device)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
@@ -430,7 +427,7 @@ tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_work
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=15, after_scheduler=scheduler_cosine)
@@ -455,8 +452,8 @@ for epoch in range(EPOCHS):
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
     for x, xneg, y in loader: 
-        x = x.to(device)
-        xneg = xneg.to(device)
+        x = x.to(device).half()
+        xneg = xneg.to(device).half()
         y = y.cuda()
         # cutmix
 
@@ -473,22 +470,21 @@ for epoch in range(EPOCHS):
             ## Cutmix
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)
-            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True)
+            input_var = torch.autograd.Variable(x, requires_grad=True).half()
+            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True).half()
             #input_var = torch.autograd.Variable(x1, requires_grad=True)
-            target_a_var = torch.autograd.Variable(target_a)
-            target_b_var = torch.autograd.Variable(target_b)
+            target_a_var = torch.autograd.Variable(target_a)#.half()
+            target_b_var = torch.autograd.Variable(target_b)#.half()
             output = model(input_var, input_var_neg)
 
             loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
         else:
             # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)
-            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True)
+            input_var = torch.autograd.Variable(x, requires_grad=True).half()
+            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True).half()
             target_var = torch.autograd.Variable(y)
             output = model(input_var, input_var_neg)
             loss = criterion(output, target_var)
-
         loss.backward()
         optimizer.step()
         tloss += loss.item()
@@ -509,19 +505,17 @@ for epoch in range(EPOCHS):
     #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
     preds, probs = prediction(model, vloader)
     probsls.append(compress_sites(probs))
-    logger.info(probsls[-1].shape)
-    preds, probs = prediction(model, tloader)
-    probststls.append(compress_sites(probs))
-    logger.info(probststls[-1].shape)
-    probststls = probststls[-nbags:]
     probsls = probsls[-nbags:]
     gc.collect()
     probsbag = sum(probsls)/len(probsls)
+    if epoch < (EPOCHS-nbags-1):
+        preds, probs = prediction(model, tloader)
+        probststls.append(compress_sites(probs))
+        probststls = probststls[-nbags:]
     # Only argmax the non controls
     probsbag = probsbag[:,:1108]
     predsmax = np.argmax(probsls[-1][:,:1108], 1)
     predsbagmax = np.argmax(probsbag, 1)
-
     matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
     matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
     outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
