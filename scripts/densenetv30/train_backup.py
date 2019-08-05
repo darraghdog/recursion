@@ -31,11 +31,6 @@ from albumentations import (Cutout, Compose, Normalize, RandomRotate90, Horizont
                            )
 
 from tqdm import tqdm
-from apex.parallel import DistributedDataParallel as DDP
-from apex.fp16_utils import *
-from apex import amp, optimizers
-from apex.multi_tensor_apply import multi_tensor_applier
-
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -319,9 +314,9 @@ def prediction(model, loader):
     probs = []
     for t, (x, xneg,  _) in enumerate(loader):
         #logger.info(t, x.shape, xneg.shape)
-        x = x.to(device)#.half()
-        xneg = xneg.to(device)#.half()
-        output = model(x, xneg)#.float()
+        x = x.to(device).half()
+        xneg = xneg.to(device).half()
+        output = model(x, xneg).float()
         idx = output.max(dim=-1)[1].cpu().numpy()
         outmat = torch.sigmoid(output.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
@@ -423,7 +418,7 @@ if n_gpu > 0:
 torch.backends.cudnn.deterministic = True
 
 model = DensNet(num_classes=classes)
-#model= model.half()
+model= model.half()
 model.to(device)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
@@ -457,8 +452,8 @@ for epoch in range(EPOCHS):
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
     for x, xneg, y in loader: 
-        x = x.to(device)#.half()
-        xneg = xneg.to(device)#.half()
+        x = x.to(device).half()
+        xneg = xneg.to(device).half()
         y = y.cuda()
         # cutmix
 
@@ -475,8 +470,8 @@ for epoch in range(EPOCHS):
             ## Cutmix
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True)#.half()
+            input_var = torch.autograd.Variable(x, requires_grad=True).half()
+            input_var_neg = torch.autograd.Variable(xneg, requires_grad=True).half()
             #input_var = torch.autograd.Variable(x1, requires_grad=True)
             target_a_var = torch.autograd.Variable(target_a)#.half()
             target_b_var = torch.autograd.Variable(target_b)#.half()
