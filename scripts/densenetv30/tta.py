@@ -23,7 +23,8 @@ import datetime
 
 import torchvision
 from torchvision import transforms as T
-
+from albumentations import DualTransform
+from scipy.stats.mstats import hmean
 from albumentations import (Cutout, Compose, Normalize, RandomRotate90, HorizontalFlip,
                            VerticalFlip, ShiftScaleRotate, Transpose, OneOf, IAAAdditiveGaussianNoise,
                            GaussNoise, RandomGamma, RandomContrast, RandomBrightness, HueSaturationValue,
@@ -35,7 +36,6 @@ from apex.parallel import DistributedDataParallel as DDP
 from apex.fp16_utils import *
 from apex import amp, optimizers
 from apex.multi_tensor_apply import multi_tensor_applier
-from apex.optimizers.fused_adam import FusedAdam
 
 
 import warnings
@@ -66,7 +66,7 @@ package_dir = options.rootpath
 sys.path.append(package_dir)
 from logs import get_logger
 from utils import dumpobj, loadobj, GradualWarmupScheduler
-
+from utils import RandomRotate90_1, RandomRotate90_2, RandomRotate90_3
 
 # Print info about environments
 logger = get_logger(options.logmsg, 'INFO') # noqa
@@ -105,12 +105,13 @@ print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
 
 class ImagesDS(D.Dataset):
-    def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
+    def __init__(self, df, negdf, img_dir, mode='train', site=1, channels=[1,2,3,4,5,6]):
         
         #df = pd.read_csv(csv_file)
         self.records = df.to_records(index=False)
+        self.ctrlrecords = negdf
         self.channels = channels
-        #self.site = site
+        self.site = site
         self.mode = mode
         self.transform = train_aug()
         if self.mode != 'train' : self.transform = test_aug()
@@ -131,19 +132,33 @@ class ImagesDS(D.Dataset):
         img = T.Normalize([*list(mean_)], [*list(sd_)])(img)
         return img  
 
-    def _get_np_path(self, index, site):
+    def _get_np_path(self, index):
         #site = random.randint(1, 2)
-        experiment, well, plate, mode = self.records[index].experiment, \
+        experiment, well, plate, mode, site = self.records[index].experiment, \
                                         self.records[index].well, \
                                         self.records[index].plate, \
-                                        self.records[index].mode
+                                        self.records[index].mode, \
+                                        self.records[index].site
+        # ,'mount1/512X512X6'
+        return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{site}_w.pk'])
+
+    def _get_neg_path(self, index):
+        #site = random.randint(1, 2)
+        experiment, well, plate, mode, site = self.records[index].experiment, \
+                                        self.records[index].well, \
+                                        self.records[index].plate, \
+                                        self.records[index].mode, \
+                                        self.records[index].site
+        
+        well = self.negdf.loc[experiment, plate].sample(n=1).iloc[0]['well']
+        mode = 'train' if self.mode in ['train', 'val' ] else 'test'
         # ,'mount1/512X512X6'
         return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{site}_w.pk'])
     
     def __getitem__(self, index):
-        pathnp1 = self._get_np_path(index, site = 1)
-        pathnp2 = self._get_np_path(index, site = 2)
-        experiment, plate, _ = pathnp1.split('/')[-3:]
+        pathnp = self._get_np_path(index)
+        pathneg = self._get_np_path(index)
+        experiment, plate, _ = pathnp.split('/')[-3:]
         #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
         #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
         stats_key = '{}/{}/{}'.format(experiment, plate[-1], self.records[index].mode )
@@ -151,21 +166,20 @@ class ImagesDS(D.Dataset):
         rand_filter = random.randint(0,2)
         stats_dict = illumpk[rand_filter][stats_key]
 
-        img1 = self._load_img_as_tensor(pathnp1, 
+        img = self._load_img_as_tensor(pathnp, 
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
                                        stats_dict['illum_correction_function'],
                                        self.transform)
-        img2 = self._load_img_as_tensor(pathnp2, 
+        imgneg = self._load_img_as_tensor(pathneg, 
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
                                        stats_dict['illum_correction_function'],
                                        self.transform)
-        img = np.hstack((img1, img2))
         if self.mode in ['train', 'val' ]:
-            return img, self.records[index].sirna
+            return img, imgneg, self.records[index].sirna
         else:
-            return img, self.records[index].id_code
+            return img, imgneg, self.records[index].id_code
 
     def __len__(self):
         """
@@ -225,6 +239,17 @@ def train_aug(p=1.):
                          rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
     ], p=p)
 
+def add_sites(df):
+    df1 = df.copy()
+    df2 = df.copy()
+    df1['site'] = 1
+    df2['site'] = 2
+    return pd.concat([df1, df2], 0)
+
+def compress_sites(mat):
+    #return np.maximum( mat[:int(mat.shape[0]/2)] ,  mat[int(mat.shape[0]/2):]  )
+    return 0.5 * ( mat[:int(mat.shape[0]/2)] + mat[int(mat.shape[0]/2):] )
+
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
@@ -247,13 +272,24 @@ class DensNet(nn.Module):
         preloaded = torchvision.models.densenet121(pretrained=True)
         self.features = preloaded.features
         self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
-        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.classifier = nn.Linear(1024*2, num_classes, bias=True)
         del preloaded
         
-    def forward(self, x):
+    def forward(self, x, xneg):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
+        
+        features_neg = self.features(xneg)
+        out_neg = F.relu(features_neg, inplace=True)
+        out_neg = F.adaptive_avg_pool2d(out_neg, (1, 1)).view(features_neg.size(0), -1)
+        
+        #MSE between sample and negatives
+        out_neg = out - out_neg 
+        out_neg = torch.mul(out_neg,out_neg)
+        
+        out = torch.cat((out_neg, out), 1)
+        
         out = self.classifier(out)
         return out
 
@@ -282,9 +318,11 @@ def single_pred(dffold, probs):
 def prediction(model, loader):
     preds = np.empty(0)
     probs = []
-    for t, (x, _) in enumerate(loader):
+    for t, (x, xneg,  _) in enumerate(loader):
+        #logger.info(t, x.shape, xneg.shape)
         x = x.to(device)#.half()
-        output = model(x)#.float()
+        xneg = xneg.to(device)#.half()
+        output = model(x, xneg)#.float()
         idx = output.max(dim=-1)[1].cpu().numpy()
         outmat = torch.sigmoid(output.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
@@ -298,6 +336,13 @@ if not os.path.exists(WORK_DIR):
     
 logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
+
+
+tta1 = [NoOp, RandomRotate90_1, RandomRotate90_2, RandomRotate90_3]
+tta2 = [NoOp, HorizontalFlip, VerticalFlip, Transpose]
+
+
+
 #transform = train_aug()
 
 
@@ -308,6 +353,16 @@ train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
+
+logger.info('Remove Negative controls')
+trnix = train_ctrl['well_type']=='negative_control'
+tstix = test_ctrl['well_type']=='negative_control'
+negdf = pd.concat([train_ctrl[trnix].reset_index(drop=True),
+                   test_ctrl[tstix].reset_index(drop=True)])
+train_ctrl = train_ctrl[~trnix].reset_index(drop=True)#.iloc[:300]
+test_ctrl = test_ctrl[~tstix].reset_index(drop=True)#.iloc[:300]
+negdf = negdf.set_index(['experiment', 'plate'])
+
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -351,15 +406,15 @@ trainfull = pd.concat([traindf,
                         test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
 
-#trainfull = add_sites(trainfull)#.iloc[:300]
-#validdf = add_sites(validdf)#.iloc[:300]
-#test_df = add_sites(test_df)#.iloc[:300]
+trainfull = add_sites(trainfull)#.iloc[:300]
+validdf = add_sites(validdf)#.iloc[:300]
+test_df = add_sites(test_df)#.iloc[:300]
 #y_val = y_val [:150]      
 
 # ds = ImagesDS(traindf, path_data)
-ds = ImagesDS(trainfull, path_img)
-ds_val = ImagesDS(validdf, path_img, mode='val')
-ds_test = ImagesDS(test_df, path_img, mode='test')
+ds = ImagesDS(trainfull, negdf, path_img)
+ds_val = ImagesDS(validdf, negdf, path_img, mode='val')
+ds_test = ImagesDS(test_df, negdf, path_img, mode='test')
 
 logger.info('******** Checking Input Data Shapes - Part 2 **********')
 logger.info(trainfull.shape)
@@ -375,102 +430,59 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
-model = DensNet(num_classes=classes)
-#model= model.half()
-model.to(device)
-
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
-
-criterion = nn.BCEWithLogitsLoss()
-criterion = nn.CrossEntropyLoss()
-#optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
-optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
-
-scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
-scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=15, after_scheduler=scheduler_cosine)
-
-model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
-
+vloader = D.DataLoader(ds_val, batch_size=batch_size*8, shuffle=False, num_workers=5)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*8, shuffle=False, num_workers=5)
 
 logger.info('Start training')
 tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-for epoch in range(EPOCHS):
-    scheduler_warmup.step()
-    tloss = 0
-    model.train()
-    acc = np.zeros(1)
 
-    for param_group in optimizer.param_groups:
-        logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
+def test_aug(p=1.):
+    return Compose([
+        RandomRotate90(),
+        HorizontalFlip(),
+        VerticalFlip(),
+        Transpose(),
+        NoOp(),
+    ], p=p)
 
-    cutmix_prob_warmup = cutmix_prob if epoch>10 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
-    logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
-    for x, y in loader: 
-        x = x.to(device)#.half()
-        y = y.cuda()
-        # cutmix
+tta1 = [NoOp, RandomRotate90_1, RandomRotate90_2, RandomRotate90_3]
+tta2 = [NoOp, HorizontalFlip, VerticalFlip, Transpose]
 
-        optimizer.zero_grad()
-        r = np.random.rand(1)
-        if beta > 0 and r < cutmix_prob_warmup:
-            
-            # generate mixed sample
-            lam = np.random.beta(beta, beta)
-            rand_index = torch.randperm(x.size()[0]).cuda()
-            target_a = y
-            target_b = y[rand_index]
-            bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
-            ## Cutmix
-            x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
-            # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            #input_var = torch.autograd.Variable(x1, requires_grad=True)
-            target_a_var = torch.autograd.Variable(target_a)#.half()
-            target_b_var = torch.autograd.Variable(target_b)#.half()
-            output = model(input_var)
+for epoch in range(EPOCHS-nbags, EPOCHS):
 
-            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
-        else:
-            # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            target_var = torch.autograd.Variable(y)
-            output = model(input_var)
-            loss = criterion(output, target_var)
-        #loss.backward()
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward()
-        optimizer.step()
-        tloss += loss.item()
-        if PRECISION != 'half':        
-            acc += accuracy(output.cpu(), y.cpu())
-        del loss, output, y, x# , target
-    output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    if (epoch % 5 == 0) or (epoch>39) :
-        torch.save(model.state_dict(), output_model_file)
-    if PRECISION != 'half':
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
-    else:
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}'.format(epoch+1, tloss/tlen)
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-    if epoch < 0:
-        continue
+    input_model_file= os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+    model = DensNet(num_classes=classes)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
+    model.load_state_dict(torch.load(input_model_file))
     model.eval()
-    #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
-    preds, probs = prediction(model, vloader)
-    probsls.append(probs)
-    probsls = probsls[-nbags:]
+    
+    for _t in tta1:
+        for _t2 in tta2:
+            def test_aug(p=1.): 
+                return Compose([
+                    _t(p = 1.),
+                    _t2(p = 1.),
+                ], p=1.)
+            ds_val = ImagesDS(validdf, negdf, path_img, mode='val')
+            ds_test = ImagesDS(test_df, negdf, path_img, mode='test')
+            vloader = D.DataLoader(ds_val, batch_size=batch_size*8, shuffle=False, num_workers=16)
+            tloader = D.DataLoader(ds_test, batch_size=batch_size*8, shuffle=False, num_workers=16)
+            preds, probs = prediction(model, vloader)
+            probsls.append(compress_sites(probs))
+    #probsls = probsls[-(nbags*2):]
     gc.collect()
-    probsbag = sum(probsls)/len(probsls)
-    if epoch < (EPOCHS-nbags-1):
-        preds, probs = prediction(model, tloader)
-        probststls.append(probs)
-        probststls = probststls[-nbags:]
+    probsbag = hmean(probsls)
+    #if epoch < (EPOCHS-nbags-1):
+    #    preds, probs = prediction(model, tloader)
+    #    probststls.append(compress_sites(probs))
+    #    probststls = probststls[-nbags:]
     # Only argmax the non controls
     probsbag = probsbag[:,:1108]
     predsmax = np.argmax(probsls[-1][:,:1108], 1)
@@ -480,7 +492,8 @@ for epoch in range(EPOCHS):
     outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
                     epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-
+    del model
+'''
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
 
@@ -493,4 +506,4 @@ submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = single_pred(submission, probsbag).astype(int)
 # submission['sirna'] = predsbag.astype(int)
 submission.to_csv('mixme_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
-
+'''
