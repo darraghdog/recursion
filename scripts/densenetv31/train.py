@@ -311,6 +311,7 @@ test_df['mode'] = test_ctrl['mode'] = 'test'
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
+train_ctrl = pd.merge(train_ctrl, folddf, on = 'experiment' )
 statsdf = pd.read_csv( os.path.join( path_data, 'stats.csv'))
 
 logger.info('Load illumination stats')
@@ -345,10 +346,10 @@ y_val = validdf.sirna.values
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
 trainfull = pd.concat([traindf, 
-                       train_ctrl.drop('well_type', 1), 
-                       train_ctrl.drop('well_type', 1),
-                       test_ctrl.drop('well_type', 1),
-                        test_ctrl.drop('well_type', 1)], 0)
+                       train_ctrl[train_ctrl['fold']!=fold].drop('well_type', 1), 
+                       train_ctrl[train_ctrl['fold']!=fold].drop('well_type', 1)],0)
+                       #test_ctrl.drop('well_type', 1),
+                       #test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
 
 #trainfull = add_sites(trainfull)#.iloc[:300]
