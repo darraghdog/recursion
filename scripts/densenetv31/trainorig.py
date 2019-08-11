@@ -307,10 +307,12 @@ logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time(
 logger.info('Load Dataframes')
 train_dfall = pd.read_csv( os.path.join( path_data, 'train.csv'))#.iloc[:3000]
 test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))#.iloc[:300]
+huvec18_df = pd.read_csv( os.path.join( path_data, 'huvec18.csv'))#.iloc[:300]
 train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
+huvec18_df['mode'] = 'test'
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -338,6 +340,8 @@ logger.info(train_dfall['fold'].value_counts())
 
 traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
+if validdf.shape[0]==0:
+    validdf = huvec18_df
 y_val = validdf.sirna.values
 
 #logger.info('******** Checking Input Data Shapes - Part 1 **********')

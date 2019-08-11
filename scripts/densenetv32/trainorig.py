@@ -112,8 +112,10 @@ class ImagesDS(D.Dataset):
         self.channels = channels
         #self.site = site
         self.mode = mode
-        self.transform = train_aug()
-        if self.mode != 'train' : self.transform = test_aug()
+        self.transform1 = train_aug1()
+        if self.mode != 'train' : self.transform1 = test_aug1()
+        self.transform2 = train_aug2()
+        if self.mode != 'train' : self.transform2 = test_aug2()
         self.img_dir = img_dir
         self.len = df.shape[0]
         logger.info('ImageDS Shape')
@@ -155,16 +157,17 @@ class ImagesDS(D.Dataset):
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
                                        stats_dict['illum_correction_function'],
-                                       self.transform)
+                                       self.transform1)
         img2 = self._load_img_as_tensor(pathnp2, 
                                        stats_dict['mean'], 
                                        stats_dict['std'], 
                                        stats_dict['illum_correction_function'],
-                                       self.transform)
-        if random.randint(0,1)==1:
-            img = np.hstack((img1, img2))
-        else:
-            img = np.hstack((img2, img1))
+                                       self.transform1)
+        img = np.hstack((img1, img2)) if (random.randint(0,1) == 1) else np.hstack((img2, img1))
+        img = np.moveaxis(img, 0, -1) 
+        img = self.transform2(image = img)['image']
+        img = np.moveaxis(img, -1, 0)
+        img = torch.from_numpy(img)
         if self.mode in ['train', 'val' ]:
             return img, self.records[index].sirna
         else:
@@ -201,7 +204,7 @@ def add_sites(df):
     df2['site'] = 2
     return pd.concat([df1, df2], 0)
 
-def test_aug(p=1.):
+def test_aug1(p=1.):
     return Compose([
         RandomRotate90(),
         HorizontalFlip(),
@@ -210,22 +213,36 @@ def test_aug(p=1.):
         NoOp(),
     ], p=p)
 
-def train_aug(p=1.):
+def test_aug2(p=1.):
     return Compose([
-        RandomRotate90(),
         HorizontalFlip(),
         VerticalFlip(),
+        NoOp(),
+    ], p=p)
+
+def train_aug1(p=1.):
+    return Compose([
+        RandomRotate90(),
+        VerticalFlip(),
         Transpose(),
+        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
+                         rotate_limit=30, p=0.01, border_mode = cv2.BORDER_REPLICATE),
+    ], p=p)
+
+def train_aug2(p=1.):
+    return Compose([
+        HorizontalFlip(),
+        VerticalFlip(),
         Cutout(
             num_holes=8,
             max_h_size=24,
             max_w_size=24,
             fill_value=0,
             always_apply=False,
-            p=0.3,
+            p=0.01,
         ),
         ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, 
-                         rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
+                         rotate_limit=30, p=0.01, border_mode = cv2.BORDER_REPLICATE),
     ], p=p)
 
 def accuracy(output, target, topk=(1,)):
@@ -484,6 +501,22 @@ for epoch in range(EPOCHS):
     outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
                     epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
+    # gradually warm in the cutouts
+    def train_aug2(p=1.):
+        return Compose([HorizontalFlip(), VerticalFlip(),
+            Cutout(
+                num_holes=8,
+                max_h_size=24,
+                max_w_size=24,
+                fill_value=0,
+                always_apply=False,
+                p=cutmix_prob_warmup/2,
+            ),
+            ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
+                         rotate_limit=45, p=cutmix_prob_warmup/2, border_mode = cv2.BORDER_REPLICATE),], p=p)
+    ds = ImagesDS(trainfull, path_img)
+    loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
+    
 
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
