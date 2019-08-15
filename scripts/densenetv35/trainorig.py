@@ -99,8 +99,9 @@ PROBS_NAME = options.probsname
 PRECISION = options.precision
 fold = int(options.fold)
 nbags= int(options.nbags)
+logger.info('Devices : {}'.format(device))
 #classes = 1109
-device = 'cuda'
+#device = 'cuda'
 print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
 
@@ -432,9 +433,9 @@ model = DensNet(num_classes=classes)
 #model= model.half()
 model.to(device)
 
-loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
+loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=32)
+vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=32)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=32)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
@@ -444,8 +445,13 @@ optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
 
-model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
+if n_gpu==1:
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
+else:
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
+if n_gpu > 1:
+    model = torch.nn.DataParallel(model)
 
 logger.info('Start training')
 tlen = len(loader)
@@ -465,8 +471,8 @@ for epoch in range(EPOCHS):
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
     for x, y, d in loader: 
-        x = x.to(device)#.half()
-        y = y.cuda()
+        x = x.to(device)
+        y = y.to(device)
         d = d.to(device)
         # cutmix
 
@@ -476,7 +482,7 @@ for epoch in range(EPOCHS):
             
             # generate mixed sample
             lam = np.random.beta(beta, beta)
-            rand_index = torch.randperm(x.size()[0]).cuda()
+            rand_index = torch.randperm(x.size()[0]).to(device)
             target_a = y
             target_b = y[rand_index]
             d_a = d
@@ -486,10 +492,9 @@ for epoch in range(EPOCHS):
             ## Cutmix
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            #input_var = torch.autograd.Variable(x1, requires_grad=True)
-            target_a_var = torch.autograd.Variable(target_a)#.half()
-            target_b_var = torch.autograd.Variable(target_b)#.half()
+            input_var = torch.autograd.Variable(x, requires_grad=True)#.to(device)
+            target_a_var = torch.autograd.Variable(target_a).to(device)
+            target_b_var = torch.autograd.Variable(target_b).to(device)
             output = model(input_var, d)
             loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
         else:
@@ -499,6 +504,9 @@ for epoch in range(EPOCHS):
             output = model(input_var, d)
             loss = criterion(output, target_var)
         #loss.backward()
+
+        if n_gpu > 1:
+            loss = loss.mean() # mean() to average on multi-gpu.
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
         optimizer.step()
