@@ -20,7 +20,7 @@ import gc
 import random
 import logging
 import datetime
-
+import math
 import torchvision
 from torchvision import transforms as T
 
@@ -60,6 +60,8 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
+parser.add_option('-d', '--accum', action="store", dest="accum", help="root directory", default="1")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -98,6 +100,7 @@ WEIGHTS_NAME = options.weightsname
 PROBS_NAME = options.probsname
 PRECISION = options.precision
 fold = int(options.fold)
+accumulation_steps=int(options.accum)
 nbags= int(options.nbags)
 logger.info('Devices : {}'.format(device))
 #classes = 1109
@@ -415,7 +418,18 @@ tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_work
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+
+
+param_optimizer = model.named_parameters()
+
+optimizer_parameters = [
+    {'params': [p for n, p in param_optimizer if n.split('.')[-1] != 'bias'], 'weight_decay': 0.00001},
+    {'params': [p for n, p in param_optimizer if n.split('.')[-1] == 'bias'], 'weight_decay': 0.00}
+    ]
+
+
+#optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+optimizer = torch.optim.Adam(optimizer_parameters, lr=lr, eps=1e-4)
 #optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
@@ -434,22 +448,20 @@ tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-for epoch in range(EPOCHS):
-    scheduler_warmup.step()
-    tloss = 0
-    model.train()
-    acc = np.zeros(1)
+losses = []
+log_lrs = []
+wdls = []
+bdls = []
+decays = [ 0.]
+#momentums = [0.8, 0.9, 0.92, 0.95, 0.98,  0.99, 0.99]
+decay_pairs = [0.]
 
-    for param_group in optimizer.param_groups:
-        logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
-
-    cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
-    logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
+if True:
     ######One Cycle Policy##########>
     # https://sgugger.github.io/the-1cycle-policy.html#the-1cycle-policy
     # add Weight decay and learning rate
     init_value = 1e-5
-    final_value=1e-2
+    final_value=0.1
     beta = 0.98
     num = EPOCHS*(len(loader)-1)
     mult = (final_value / init_value) ** (1/num)
@@ -461,13 +473,20 @@ for epoch in range(EPOCHS):
     ######One Cycle Policy##########<
 
 
-    for x, y, d in loader: 
+
+for epoch in range(EPOCHS):
+    scheduler_warmup.step()
+    tloss = 0
+    model.train()
+    acc = np.zeros(1)
+    cutmix_prob_warmup = cutmix_prob # if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
+    logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
+    for i, ( x, y, d) in enumerate(loader): 
         x = x.to(device)
         y = y.to(device)
         d = d.to(device)
         # cutmix
 
-        optimizer.zero_grad()
         r = np.random.rand(1)
         if beta > 0 and r < cutmix_prob_warmup:
             
@@ -509,15 +528,15 @@ for epoch in range(EPOCHS):
         #Store the values
         losses.append(smoothed_loss)
         log_lrs.append(math.log10(lrtmp))
-        wdls.append('wd_{}'.format(weight_decay))
-        bdls.append('bd_{}'.format(bias_decay))
         ######One Cycle Policy##########<
 
         if n_gpu > 1:
             loss = loss.mean() # mean() to average on multi-gpu.
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
-        optimizer.step()
+        if (i+1) % accumulation_steps == 0:             # Wait for several backward steps
+            optimizer.step()                            # Now we can do an optimizer step
+            optimizer.zero_grad()
         tloss += loss.item()
         if PRECISION != 'half':        
             acc += accuracy(output.cpu(), y.cpu())
@@ -526,7 +545,7 @@ for epoch in range(EPOCHS):
         #Update the lr for the next step
         lrtmp *= mult
         optimizer.param_groups[0]['lr'] = lrtmp   
-        lossdf = pd.DataFrame({'momentum':bdls, 'weight_decay': wdls, 'lr_log10':log_lrs, 'losses':losses})
+        lossdf = pd.DataFrame({'log_lrs':log_lrs,  'losses':losses})
         logger.info(lossdf.tail(1))
         ######One Cycle Policy##########
         del loss, output, y, x# , target
