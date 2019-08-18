@@ -114,8 +114,7 @@ class ImagesDS(D.Dataset):
         self.channels = channels
         #self.site = site
         self.mode = mode
-        self.transform = train_aug()
-        if self.mode != 'train' : self.transform = test_aug()
+        self.transform = test_aug()
         self.img_dir = img_dir
         self.len = df.shape[0]
         logger.info('ImageDS Shape')
@@ -134,7 +133,6 @@ class ImagesDS(D.Dataset):
         return img  
 
     def _get_np_path(self, index, site):
-        #site = random.randint(1, 2)
         experiment, well, plate, mode = self.records[index].experiment, \
                                         self.records[index].well, \
                                         self.records[index].plate, \
@@ -146,10 +144,7 @@ class ImagesDS(D.Dataset):
         pathnp1 = self._get_np_path(index, site = 1)
         pathnp2 = self._get_np_path(index, site = 2)
         experiment, plate, _ = pathnp1.split('/')[-3:]
-        #stats_dict = statsgrpdf.loc[(experiment, plate)].to_dict()
-        #statsls = [(stats_dict['Mean'][c], stats_dict['Std'][c]) for c in self.channels]
         stats_key = '{}/{}/{}'.format(experiment, plate[-1], self.records[index].mode )
-        # We use different filter sizes to do illumination correction to mix it up a bit
         rand_filter = random.randint(0,2)
         stats_dict = illumpk[rand_filter][stats_key]
 
@@ -287,7 +282,10 @@ def single_pred(dffold, probs):
 def prediction(model, loader):
     preds = np.empty(0)
     probs = []
+    tlen = len(loader)
     for t, (x, _) in enumerate(loader):
+        if t%100==0:
+            logger.info('Predict step {} of {}'.format(t, tlen))
         x = x.to(device)#.half()
         output = model(x)#.float()
         idx = output.max(dim=-1)[1].cpu().numpy()
