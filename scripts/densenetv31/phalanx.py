@@ -15,7 +15,7 @@ import torch.utils.data as D
 import torch.nn.functional as F
 from sklearn.model_selection import KFold
 from scipy.stats.mstats import hmean
-
+from sklearn.metrics.pairwise import cosine_similarity
 
 import cv2
 import gc
@@ -375,11 +375,25 @@ vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_worke
 tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
 
 
+def oneshot(embtst, embtrn, trn_sirna_series):
+    train_test_similarity = cosine_similarity(embtst, embtrn)
+    train_test_similarity.shape #(19897, , 36515)
+    tts = train_test_similarity.transpose()
+    tts = pd.DataFrame(tts, index = trn_sirna_series)
+    tts = tts.reset_index().groupby('sirna').max()
+    tts = tts.transpose().values
+    tts.shape #(19897, 1108)
+    return tts
+
 logger.info('Start training')
 tlen = len(loader)
 rembls = []
 vembls = []
-for epoch in range(EPOCHS-1, EPOCHS):
+tembls = []
+vsshotls = []
+tsshotls = []
+
+for epoch in range(EPOCHS-10, EPOCHS):
     input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
@@ -389,11 +403,24 @@ for epoch in range(EPOCHS-1, EPOCHS):
     for param in model.parameters():
         param.requires_grad=False
     logger.info('Train file {}'.format(input_model_file))
-    tembls = prediction(model, tloader)
-    rembls = prediction(model, rloader)
+    # Save raw embeddings
+    embtst = prediction(model, tloader)
+    embtrn = prediction(model, rloader)
+    embval = prediction(model, vloader)
+    tembls.append(embtst)
+    rembls.append(embtrn)
+    vembls.append(embval)
+    # Get cosine similarity matrix for test and val
+    snglshottst = oneshot(embtst, embtrn, dftrn.sirna)    
+    snglshotval = oneshot(embtst, embval, dftrn.sirna)
+    vsshotls.append(snglshotval)   
+    tsshotls.append(snglshottst)
 
-    dumpobj(os.path.join( WORK_DIR, 'df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-    dumpobj(os.path.join( WORK_DIR, 'df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)   
-    dumpobj(os.path.join( WORK_DIR, 'emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    dumpobj(os.path.join( WORK_DIR, 'emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-
+dumpobj(os.path.join( WORK_DIR, '_sshot_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vsshotls)
+dumpobj(os.path.join( WORK_DIR, '_sshot_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tsshotls)
+dumpobj(os.path.join( WORK_DIR, '_emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
+dumpobj(os.path.join( WORK_DIR, '_emb_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
+dumpobj(os.path.join( WORK_DIR, '_emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
+dumpobj(os.path.join( WORK_DIR, '_df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
+dumpobj(os.path.join( WORK_DIR, '_df_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
+dumpobj(os.path.join( WORK_DIR, '_df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
