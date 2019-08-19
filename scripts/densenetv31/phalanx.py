@@ -254,7 +254,7 @@ class DensNet(nn.Module):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out = self.classifier(out)
+        out1 = self.classifier(out)
         return  out
 
 def single_pred(dffold, probs):
@@ -288,12 +288,9 @@ def prediction(model, loader):
             logger.info('Predict step {} of {}'.format(t, tlen))
         x = x.to(device)#.half()
         output = model(x)#.float()
-        idx = output.max(dim=-1)[1].cpu().numpy()
-        outmat = torch.sigmoid(output.cpu()).numpy()
-        preds = np.append(preds, idx, axis=0)
-        probs.append(outmat)
+        probs.append(output.cpu().numpy())
     probs = np.concatenate(probs, 0)
-    return preds, probs
+    return probs
 
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
@@ -373,7 +370,7 @@ torch.backends.cudnn.deterministic = True
 model = DensNet(num_classes=classes)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=16)
-rloader = D.DataLoader(ds_trn, batch_size=batch_size, shuffle=False, num_workers=16)
+rloader = D.DataLoader(ds_trn, batch_size=batch_size*4, shuffle=False, num_workers=16)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
 tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
 
@@ -392,11 +389,11 @@ for epoch in range(EPOCHS-1, EPOCHS):
     for param in model.parameters():
         param.requires_grad=False
     logger.info('Train file {}'.format(input_model_file))
+    tembls = prediction(model, tloader)
     rembls = prediction(model, rloader)
-    vembls = prediction(model, vloader)
 
     dumpobj(os.path.join( WORK_DIR, 'df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
     dumpobj(os.path.join( WORK_DIR, 'df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)   
     dumpobj(os.path.join( WORK_DIR, 'emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    dumpobj(os.path.join( WORK_DIR, 'emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)    
+    dumpobj(os.path.join( WORK_DIR, 'emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
 
