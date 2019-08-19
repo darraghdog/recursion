@@ -411,8 +411,8 @@ for epoch in range(EPOCHS-10, EPOCHS):
     rembls.append(embtrn)
     vembls.append(embval)
     # Get cosine similarity matrix for test and val
-    snglshottst = oneshot(embtst, embtrn, dftrn.sirna)    
-    snglshotval = oneshot(embtst, embval, dftrn.sirna)
+    snglshottst = oneshot(embtst, embtrn, train_dfall.sirna)    
+    snglshotval = oneshot(embval, embtrn, train_dfall.sirna)
     vsshotls.append(snglshotval)   
     tsshotls.append(snglshottst)
 
