@@ -106,8 +106,8 @@ logger.info('Devices : {}'.format(device))
 print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
 
-logger.info(os.listdir(ROOT))
-logger.info(os.listdir('/opt/conda/lib/python3.6/site-packages/torchvision/models/'))
+os.environ["TORCH_HOME"] = os.path.join( path_data, 'mount')
+logger.info(os.system('$TORCH_HOME'))
 
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
@@ -409,6 +409,8 @@ torch.cuda.manual_seed(SEED)
 if n_gpu > 1:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
+
+
 
 model = DensNet(num_classes=classes)
 model.to(device)
