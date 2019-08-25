@@ -85,6 +85,7 @@ logger.info('Load params : time {}'.format(datetime.datetime.now().time()))
 for (k,v) in options.__dict__.items():
     logger.info('{}{}'.format(k.ljust(20), v))
 
+
 cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
@@ -96,6 +97,7 @@ ROOT = options.rootpath
 path_data = os.path.join(ROOT, 'data')
 path_img = os.path.join(ROOT, options.imgpath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
+WORK_DIR = os.path.join('/data/sdsml_prod/projects/data/ldc/recursion', options.workpath)
 WEIGHTS_NAME = options.weightsname
 PROBS_NAME = options.probsname
 PRECISION = options.precision
@@ -103,6 +105,21 @@ fold = int(options.fold)
 nbags= int(options.nbags)
 #classes = 1109
 device = 'cuda'
+
+'''
+# Check directory exists
+CHKDIR= WORK_DIR
+if os.path.exists(CHKDIR):
+    logger.info('Path EXISTS!!!')
+    logger.info(CHKDIR)
+else:
+    logger.info('Path doesnot exist!!!')
+    #logger.info(os.listdir(os.path.join( WORK_DIR, '../mount1')))
+    logger.info(CHKDIR)
+    #break
+'''
+
+
 print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
 
@@ -416,8 +433,6 @@ for epoch in range(EPOCHS-10, EPOCHS):
     vsshotls.append(snglshotval)   
     tsshotls.append(snglshottst)
 
-dumpobj(os.path.join( WORK_DIR, '_sshot_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vsshotls)
-dumpobj(os.path.join( WORK_DIR, '_sshot_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tsshotls)
 dumpobj(os.path.join( WORK_DIR, '_emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
 dumpobj(os.path.join( WORK_DIR, '_emb_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
 dumpobj(os.path.join( WORK_DIR, '_emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    

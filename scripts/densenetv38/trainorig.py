@@ -106,6 +106,9 @@ logger.info('Devices : {}'.format(device))
 print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
 
+logger.info(os.listdir(ROOT))
+logger.info(os.listdir('/opt/conda/lib/python3.6/site-packages/torchvision/models/'))
+
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
         
@@ -360,13 +363,13 @@ folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
 train_ctrl = pd.merge(train_ctrl, folddf, on = 'experiment' )
 statsdf = pd.read_csv( os.path.join( path_data, 'statslog.csv'))
-
+'''
 logger.info('Load illumination stats')
-illumfiles = dict((i, 'mount/illumsttats_fs{}_{}.pk'.format((2**(i+4)), options.imgpath.split('/')[2])) for i in range(3))
+illumfiles = dict((i, 'illumsttats_fs{}_{}.pk'.format((2**(i+4)), options.imgpath.split('/')[2])) for i in range(1,2))
 logger.info([os.path.join( path_data, v) for v in illumfiles.values()] )
-illumpk = dict((i, loadobj(os.path.join( path_data, illumfiles[i]))) for i in range(3))
+illumpk = dict((i, loadobj(os.path.join( path_data, illumfiles[i]))) for i in range(1, 2))
 logger.info([i for i in illumpk[0].keys()][:5])
-
+'''
 logger.info('Calculate stats')
 statsdf['experiment'] = statsdf['FileName'].apply(lambda x: x.split('/')[-3])
 statsdf['plate'] = statsdf['FileName'].apply(lambda x: x.split('/')[-2])
