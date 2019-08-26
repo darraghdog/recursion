@@ -14,6 +14,8 @@ import torch.nn as nn
 import torch.utils.data as D
 import torch.nn.functional as F
 from sklearn.model_selection import KFold
+from scipy.stats.mstats import hmean
+
 
 import cv2
 import gc
@@ -387,12 +389,10 @@ if n_gpu > 0:
 torch.backends.cudnn.deterministic = True
 
 model = DensNet(num_classes=classes)
-#model= model.half()
-model.to(device)
 
-loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=24)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=24)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=24)
+loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=16)
+vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
@@ -403,7 +403,6 @@ scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
 
 #model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
-model, optimizer = amp.initialize(model, optimizer, opt_level="O1", loss_scale="dynamic")
 
 
 logger.info('Start training')
@@ -411,99 +410,38 @@ tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-for epoch in range(EPOCHS):
-    scheduler_warmup.step()
-    tloss = 0
-    model.train()
-    acc = np.zeros(1)
-
-    for param_group in optimizer.param_groups:
-        logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
-
-    cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
-    logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
-
-    for tt, (x, y) in enumerate(loader): 
-        x = x.to(device)#.half()
-        y = y.cuda()
-        # cutmix
-        #logger.info(tt)
-        optimizer.zero_grad()
-        r = np.random.rand(1)
-        if beta > 0 and r < cutmix_prob_warmup:
-            
-            # generate mixed sample
-            lam = np.random.beta(beta, beta)
-            rand_index = torch.randperm(x.size()[0]).cuda()
-            target_a = y
-            target_b = y[rand_index]
-            bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
-            ## Cutmix
-            x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
-            # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            #input_var = torch.autograd.Variable(x1, requires_grad=True)
-            target_a_var = torch.autograd.Variable(target_a)#.half()
-            target_b_var = torch.autograd.Variable(target_b)#.half()
-            output = model(input_var)
-
-            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
-        else:
-            # compute output
-            input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            target_var = torch.autograd.Variable(y)
-            output = model(input_var)
-            loss = criterion(output, target_var)
-        #loss.backward()
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward()
-        optimizer.step()
-        tloss += loss.item()
-        if PRECISION != 'half':        
-            acc += accuracy(output.cpu(), y.cpu())
-        del loss, output, y, x# , target
-    output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    if (epoch % 5 == 0) or (epoch>39) :
-        torch.save(model.state_dict(), output_model_file)
-    if PRECISION != 'half':
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
-    else:
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}'.format(epoch+1, tloss/tlen)
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-    if epoch < 999999:
-        continue
-    model.eval()
+#for epoch in range(EPOCHS-nbags-1, EPOCHS):
+for epoch in range(25,26):
+    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+    logger.info(input_model_file)
+    model = DensNet(num_classes=classes)
+    model.to(device)
+    model.load_state_dict(torch.load(input_model_file))
+    model.to(device)
+    for param in model.parameters():
+        param.requires_grad=False
     #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
-    preds, probs = prediction(model, vloader)
-    probsls.append(probs)
-    probsls = probsls[-nbags:]
-    gc.collect()
-    probsbag = sum(probsls)/len(probsls)
-    if epoch < (EPOCHS-nbags-1):
-        preds, probs = prediction(model, tloader)
-        probststls.append(probs)
-        probststls = probststls[-nbags:]
-    # Only argmax the non controls
-    probsbag = probsbag[:,:1108]
-    predsmax = np.argmax(probsls[-1][:,:1108], 1)
-    predsbagmax = np.argmax(probsbag, 1)
-    matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
-    matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
-                    epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
+    #for ii in range(8):
+    for ii in range(1):
+        logger.info('Bag {}, file {}'.format(ii, input_model_file))
+        preds, probs = prediction(model, vloader)
+        probsls.append(probs)
+        gc.collect()
+        probsbag = hmean([i.clip(1e-40, 1) for i in probsls])
+        #preds, probs = prediction(model, tloader)
+        #probststls.append(probs)
+        # Only argmax the non controls
+        probsbag = probsbag[:,:1108]
+        predsmax = np.argmax(probsls[-1][:,:1108], 1)
+        predsbagmax = np.argmax(probsbag, 1)
+        matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
+        matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
+        outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
+                        epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
+        logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
-'''
-dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
-dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
-
-logger.info('Submission')
-probsbag = sum(probststls)/len(probststls)
-probsbag = probsbag[:,:1108]
-
-# predsbag = np.argmax(probsbag, 1)
-submission = pd.read_csv(path_data + '/test.csv')
-submission['sirna'] = single_pred(submission, probsbag).astype(int)
-# submission['sirna'] = predsbag.astype(int)
-submission.to_csv('mixme_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
-'''
+    dumpobj(os.path.join( WORK_DIR, 'superbag_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probs)
+    #dumpobj(os.path.join( WORK_DIR, 'superbag_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), hmean([i.clip(1e-40, 1) for i in probsls]))
+    #dumpobj(os.path.join( WORK_DIR, 'superbag_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), hmean([i.clip(1e-40, 1) for i in probststls]))    
+    del model
+    torch.cuda.empty_cache()
