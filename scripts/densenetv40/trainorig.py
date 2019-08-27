@@ -60,6 +60,7 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
+parser.add_option('-d', '--frozenname', action="store", dest="frozenname", help="Frozen weights file name", default="pytorch_model.bin")
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -95,6 +96,7 @@ path_data = os.path.join(ROOT, 'data')
 path_img = os.path.join(ROOT, options.imgpath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
 WEIGHTS_NAME = options.weightsname
+FROZEN_NAME = options.frozenname
 PROBS_NAME = options.probsname
 PRECISION = options.precision
 fold = int(options.fold)
@@ -243,7 +245,7 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size).item())
         return np.array(res)
-
+'''
 class DensNet(nn.Module):
     def __init__(self, num_classes=1000, num_channels=6):
         super().__init__()
@@ -259,6 +261,29 @@ class DensNet(nn.Module):
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
         out = self.classifier(out)
         return out
+'''
+
+class DensNet(nn.Module):
+    def __init__(self, num_classes=1000, num_channels=6):
+        super().__init__()
+        preloaded = torchvision.models.densenet121(pretrained=True)
+        self.features = preloaded.features
+        self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
+        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.cosdist = nn.CosineSimilarity(dim=2, eps=1e-4)
+        del preloaded
+        
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        outemb = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
+        # Classifier output
+        outln = self.classifier(outemb)
+        # Repeat this vector for each sample in the batch
+        class_wts = self.classifier.weight.unsqueeze(0).repeat(outemb.size(0),1, 1)
+        # Cosine distance output
+        outdist = self.cosdist(outemb.unsqueeze(1), class_wts)
+        return outln, outdist
 
 def single_pred(dffold, probs):
     pred_df = dffold[['id_code','experiment']].copy()
@@ -310,9 +335,8 @@ test_df  = pd.read_csv( os.path.join( path_data, 'test.csv'))#.iloc[:300]
 huvec18_df = pd.read_csv( os.path.join( path_data, 'huvec18.csv'))#.iloc[:300]
 train_ctrl = pd.read_csv(os.path.join(path_data, 'train_controls.csv'))
 test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
-sublearn = pd.read_csv(os.path.join(path_data, 'sublearn.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
-test_df['mode'] = sublearn['mode'] = test_ctrl['mode'] = 'test'
+test_df['mode'] = test_ctrl['mode'] = 'test'
 huvec18_df['mode'] = 'test'
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
@@ -353,12 +377,14 @@ y_val = validdf.sirna.values
 # Add the controls
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
+'''
 trainfull = pd.concat([traindf, 
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
-                       sublearn,
                        test_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1)], 0)
+'''
+trainfull = traindf.copy()
 classes = trainfull.sirna.max() + 1
 
 #trainfull = add_sites(trainfull)#.iloc[:300]
@@ -386,8 +412,17 @@ if n_gpu > 0:
 torch.backends.cudnn.deterministic = True
 
 model = DensNet(num_classes=classes)
-#model= model.half()
+input_model_file = os.path.join(WORK_DIR, FROZENNAME)
+logger.info('Load model {}'.format(input_model_file))
+model.load_state_dict(torch.load(input_model_file))
 model.to(device)
+
+logger.info('Freeze all parameters except for the embeddings')
+for p in model.parameters():
+    if p.shape[:1] != torch.Size([1139]):
+        p.requires_grad = False
+    else:
+        p.requires_grad = True
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
@@ -396,7 +431,6 @@ tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_work
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
-#optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
@@ -443,15 +477,18 @@ for epoch in range(EPOCHS):
             #input_var = torch.autograd.Variable(x1, requires_grad=True)
             target_a_var = torch.autograd.Variable(target_a)#.half()
             target_b_var = torch.autograd.Variable(target_b)#.half()
-            output = model(input_var)
-
-            loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
+            # output = model(input_var)
+            outln, outcos = model(input_var)
+            #loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
+            loss = criterion(outcos, target_a_var) * lam + criterion(outcos, target_b_var) * (1. - lam)
         else:
             # compute output
             input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
             target_var = torch.autograd.Variable(y)
-            output = model(input_var)
-            loss = criterion(output, target_var)
+            #output = model(input_var)
+            #loss = criterion(output, target_var)
+            outln, outcos = model(input_var)
+            loss = criterion(outcos, target_var)
         #loss.backward()
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
