@@ -60,6 +60,8 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
+parser.add_option('-k', '--accum', action="store", dest="accum", help="accumulation", default="2")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -99,6 +101,8 @@ PROBS_NAME = options.probsname
 PRECISION = options.precision
 fold = int(options.fold)
 nbags= int(options.nbags)
+accum= int(options.accum)
+
 #classes = 1109
 device = 'cuda'
 print('Data path : {}'.format(path_data))
@@ -396,14 +400,17 @@ tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_work
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 #optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
 
 #model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
-model, optimizer = amp.initialize(model, optimizer, opt_level="O1", loss_scale="dynamic")
+
+APEX=True
+if APEX:
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1", loss_scale="dynamic")
 
 
 logger.info('Start training')
@@ -423,12 +430,11 @@ for epoch in range(EPOCHS):
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
-    for tt, (x, y) in enumerate(loader): 
+    for step, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
         #logger.info(tt)
-        optimizer.zero_grad()
         r = np.random.rand(1)
         if beta > 0 and r < cutmix_prob_warmup:
             
@@ -455,10 +461,15 @@ for epoch in range(EPOCHS):
             output = model(input_var)
             loss = criterion(output, target_var)
         #loss.backward()
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward()
-        optimizer.step()
+        if APEX:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
         tloss += loss.item()
+        if (step+accum-1) % accum == 0:
+            optimizer.step()
+            optimizer.zero_grad()
         if PRECISION != 'half':        
             acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target

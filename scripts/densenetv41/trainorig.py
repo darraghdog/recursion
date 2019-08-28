@@ -408,11 +408,12 @@ for epoch in range(EPOCHS):
 
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     controls_ratio = 1.0 if epoch < 20 else (scheduler_warmup.get_lr()[0]/(lrmult*lr)) # min(1.0, ( epoch - 20 ) / (EPOCHS - 20))
-    weights = [1.0]*1108 + [controls_ratio]*(1139-1108)
+    class_weights = [1.0]*1108 + [controls_ratio]*(1139-1108)
+    class_weights = torch.tensor(class_weights).cuda()
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     logger.info('Cutmix probability {} controls ratio {}'.format(cutmix_prob_warmup, controls_ratio))
 
-    for step, (x, y) in loader: 
+    for step, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
@@ -435,8 +436,6 @@ for epoch in range(EPOCHS):
             target_a_var = torch.autograd.Variable(target_a)#.half()
             target_b_var = torch.autograd.Variable(target_b)#.half()
             output = model(input_var)
-            logger.info(output.shape)
-            logger.info(target_b_var.shape)
             loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
         else:
             # compute output

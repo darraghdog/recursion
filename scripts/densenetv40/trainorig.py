@@ -62,6 +62,9 @@ parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root di
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
 parser.add_option('-d', '--frozenname', action="store", dest="frozenname", help="Frozen weights file name", default="pytorch_model.bin")
 
+parser.add_option('-m', '--accum', action="store", dest="accum", help="Accumulation", default="1")
+
+
 options, args = parser.parse_args()
 package_dir = options.rootpath
 sys.path.append(package_dir)
@@ -87,6 +90,7 @@ for (k,v) in options.__dict__.items():
 cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
+accum = int(options.accum)
 EPOCHS = int(options.epochs)
 lr=float(options.lr)
 lrmult=int(options.lrmult)
@@ -105,6 +109,10 @@ nbags= int(options.nbags)
 device = 'cuda'
 print('Data path : {}'.format(path_data))
 print('Image path : {}'.format(path_img))
+
+
+os.environ["TORCH_HOME"] = os.path.join( path_data, 'mount')
+logger.info(os.system('$TORCH_HOME'))
 
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
@@ -312,11 +320,16 @@ def prediction(model, loader):
     probs = []
     for t, (x, _) in enumerate(loader):
         x = x.to(device)#.half()
-        output = model(x)#.float()
-        idx = output.max(dim=-1)[1].cpu().numpy()
-        outmat = torch.sigmoid(output.cpu()).numpy()
+        outln, outcos = model(x)
+        idx = outcos.max(dim=-1)[1].cpu().numpy()
+        outmat = torch.sigmoid(outcos.cpu()).numpy()
         preds = np.append(preds, idx, axis=0)
         probs.append(outmat)
+        #output = model(x)#.float()
+        #idx = output.max(dim=-1)[1].cpu().numpy()
+        #outmat = torch.sigmoid(output.cpu()).numpy()
+        #preds = np.append(preds, idx, axis=0)
+        #probs.append(outmat)
     probs = np.concatenate(probs, 0)
     return preds, probs
 
@@ -385,7 +398,7 @@ trainfull = pd.concat([traindf,
                        test_ctrl.drop('well_type', 1)], 0)
 '''
 trainfull = traindf.copy()
-classes = trainfull.sirna.max() + 1
+classes = 1139 # trainfull.sirna.max() + 1
 
 #trainfull = add_sites(trainfull)#.iloc[:300]
 #validdf = add_sites(validdf)#.iloc[:300]
@@ -412,7 +425,7 @@ if n_gpu > 0:
 torch.backends.cudnn.deterministic = True
 
 model = DensNet(num_classes=classes)
-input_model_file = os.path.join(WORK_DIR, FROZENNAME)
+input_model_file = os.path.join(WORK_DIR, FROZEN_NAME)
 logger.info('Load model {}'.format(input_model_file))
 model.load_state_dict(torch.load(input_model_file))
 model.to(device)
@@ -455,12 +468,11 @@ for epoch in range(EPOCHS):
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
-    for x, y in loader: 
+    for step, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
 
-        optimizer.zero_grad()
         r = np.random.rand(1)
         if beta > 0 and r < cutmix_prob_warmup:
             
@@ -492,11 +504,13 @@ for epoch in range(EPOCHS):
         #loss.backward()
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
-        optimizer.step()
+        if (step+accum-1) % accum == 0:
+            optimizer.step()
+            optimizer.zero_grad()
         tloss += loss.item()
         if PRECISION != 'half':        
             acc += accuracy(output.cpu(), y.cpu())
-        del loss, output, y, x# , target
+        del loss, outcos, outln, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     if (epoch % 5 == 0) or (epoch>39) :
         torch.save(model.state_dict(), output_model_file)

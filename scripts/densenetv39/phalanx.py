@@ -415,7 +415,7 @@ tsshotls = []
 
 for epoch in range(25, 26):
     input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    input_model_file = os.path.join(ROOT,  'scripts/densenetv39/weights/pytorch_cut_model_512_densenet025.bin')
+    input_model_file = os.path.join(ROOT,  'scripts/densenetv39/pytorch_cut_model_512_densenet025.bin')
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
     model.to(device)
