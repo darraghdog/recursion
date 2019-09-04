@@ -60,7 +60,7 @@ parser.add_option('-l', '--lr', action="store", dest="lr", help="learning rate",
 parser.add_option('-t', '--lrmult', action="store", dest="lrmult", help="learning rate multiplier", default="4")
 parser.add_option('-u', '--cutmix_prob', action="store", dest="cutmix_prob", help="Cutmix probability", default="0")
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
-parser.add_option('-k', '--chkptepoch', action="store", dest="chkptepoch", help="Load checkpoint from epoch", default="half")
+parser.add_option('-k', '--chkptepoch', action="store", dest="chkptepoch", help="Load checkpoint from epoch", default="1")
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -184,30 +184,6 @@ class ImagesDS(D.Dataset):
         """
         return self.len
 
-class SWA(Callback):
-    def __init__(self, model, swa_model, swa_start):
-        super().__init__()
-        self.model,self.swa_model,self.swa_start=model,swa_model,swa_start
-        
-    def on_train_begin(self):
-        self.epoch = 0
-        self.swa_n = 0
-
-    def on_epoch_end(self, metrics):
-        if (self.epoch + 1) >= self.swa_start:
-            self.update_average_model()
-            self.swa_n += 1
-            
-        self.epoch += 1
-            
-    def update_average_model(self):
-        # update running average of parameters
-        model_params = self.model.parameters()
-        swa_params = self.swa_model.parameters()
-        for model_param, swa_param in zip(model_params, swa_params):
-            swa_param.data *= self.swa_n
-            swa_param.data += model_param.data
-            swa_param.data /= (self.swa_n + 1)    
 
 def rand_bbox(size, lam):
     W = size[2]
@@ -399,6 +375,7 @@ classes = trainfull.sirna.max() + 1
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_img)
+dstmp = ImagesDS(trainfull.head(1000), path_img)
 ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
@@ -416,29 +393,33 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
-input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(CHKPTEPOCH)+'_v31.bin'  )
 logger.info(input_model_file)
 model = DensNet(num_classes=classes)
 model.to(device)
 model.load_state_dict(torch.load(input_model_file))
 
-swa_model = model.copy()
-swa_model.cuda()
+swa_model = DensNet(num_classes=classes)
+swa_model.to(device)
+swa_model.load_state_dict(torch.load(input_model_file))
 swa_n = 0
 
 
-loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
+loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=32)
+tmploader = D.DataLoader(dstmp, batch_size=batch_size, shuffle=True, num_workers=32)
+vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=32)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=32)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
+swa_optimizer = torch.optim.Adam(swa_model.parameters(), lr=lr, eps=1e-4)
 #optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
 
+swa_model, swa_optimizer = amp.initialize(swa_model, swa_optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 
 
@@ -447,20 +428,24 @@ tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-for epoch in range(CHKPTEPOCH, EPOCHS):
+for epoch in range( EPOCHS):
     scheduler_warmup.step()
     tloss = 0
     model.train()
     swa_model.train()
     acc = np.zeros(1)
-
+    if epoch < CHKPTEPOCH:
+        continue
     for param_group in optimizer.param_groups:
         logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
 
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
-
-    for x, y in loader: 
+    
+    for tt, (x, y) in enumerate(loader):
+        #if tt > 10:
+        #    logger.info(tt)
+        #    break
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
@@ -500,17 +485,14 @@ for epoch in range(CHKPTEPOCH, EPOCHS):
             acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    output_swa_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'_swa.bin'  )
+    output_swa_model_file = output_swa_model_file.replace('.bin', '_swa.bin')
     if (epoch % 5 == 0) or (epoch>39) :
         torch.save(model.state_dict(), output_model_file)
     logger.info('Update SWA')
     utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
     swa_n += 1
-    utils.bn_update(loaders['train'], swa_model)
-    torch.save(state_dict=model.state_dict(), \
-               swa_state_dict=swa_model.state_dict(), \
-               optimizer=optimizer.state_dict(), \
-               output_swa_model_file)
+    utils.bn_update(loader, swa_model)
+    torch.save(swa_model.state_dict(), output_swa_model_file)
     logger.info('done SWA step {}'.format(swa_n))
 
     if PRECISION != 'half':
