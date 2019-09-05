@@ -1,6 +1,6 @@
 N_GPU=1
 WDIR='densenetv46'
-FOLD=2
+FOLD=5
 SIZE='512'
 
 bsub  -q lowpriority -gpu "num=$N_GPU:mode=exclusive_process" -app gpu -n =$N_GPU  -env LSB_CONTAINER_IMAGE=darraghdog/kaggle:apex_build \
