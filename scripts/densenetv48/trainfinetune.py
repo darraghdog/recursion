@@ -83,6 +83,7 @@ logger.info('Cuda n_gpus : {}'.format(n_gpu ))
 
 
 logger.info('Set up model')
+SEED = int(options.seed)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed(SEED)
@@ -100,7 +101,6 @@ Load params
 '''
 cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
-SEED = int(options.seed)
 EPOCHS = int(options.epochs)
 XTRASTEPS = int(options.xtrasteps)
 EXPERIMENTFILTER = options.exp_filter
@@ -346,7 +346,7 @@ stats_dict = statsgrpdf.loc[(experiment_, plate_)].to_dict()
 print(stats_dict)
 
 
-logger.info('Create val and train sets for {}, oversample control just because...'.filter(EXPERIMENTFILTER))
+logger.info('Create val and train sets for {}, oversample control just because...'.format(EXPERIMENTFILTER))
 traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
 trainfull = pd.concat([traindf, 
@@ -357,7 +357,7 @@ trainfull = pd.concat([traindf,
 classes = trainfull.sirna.max() + 1
 
 
-logger.info('Limit to {}'.filter(EXPERIMENTFILTER))
+logger.info('Limit to {}'.format(EXPERIMENTFILTER))
 logger.info(trainfull.shape, validdf.shape, test_df.shape)
 trainfull = trainfull[trainfull.experiment.str.contains(EXPERIMENTFILTER)]
 validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER)]
@@ -378,7 +378,6 @@ y_val = validdf.sirna.values
 logger.info('If no val for this exp in the fold- kill the job ')
 if validdf.shape[0]==0:
     logger.info('KILLME! '* 50)
-    break
 
 logger.info('Get scores from previous run')
 val_acc = []

@@ -97,7 +97,7 @@ ROOT = options.rootpath
 path_data = os.path.join(ROOT, 'data')
 path_img = os.path.join(ROOT, options.imgpath)
 WORK_DIR = os.path.join(ROOT, options.workpath)
-WORK_DIR = os.path.join('/data/sdsml_prod/projects/data/ldc/recursion', options.workpath)
+#WORK_DIR = os.path.join('/data/sdsml_prod/projects/data/ldc/recursion', options.workpath)
 WEIGHTS_NAME = options.weightsname
 PROBS_NAME = options.probsname
 PRECISION = options.precision
@@ -105,6 +105,7 @@ fold = int(options.fold)
 nbags= int(options.nbags)
 #classes = 1109
 device = 'cuda'
+CONTROL = False
 
 '''
 # Check directory exists
@@ -118,6 +119,9 @@ else:
     logger.info(CHKDIR)
     #break
 '''
+
+os.environ["TORCH_HOME"] = os.path.join( path_data, 'mount')
+logger.info(os.system('$TORCH_HOME'))
 
 
 print('Data path : {}'.format(path_data))
@@ -309,10 +313,6 @@ def prediction(model, loader):
     probs = np.concatenate(probs, 0)
     return probs
 
-logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
-if not os.path.exists(WORK_DIR):
-    os.mkdir(WORK_DIR)
-    
 logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
 #transform = train_aug()
@@ -374,7 +374,9 @@ ds_trn = ImagesDS(train_dfall, path_img)
 ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
-
+dfctrl  =  pd.concat([train_ctrl.drop('well_type', 1),
+                       test_ctrl.drop('well_type', 1)], 0)
+ds_ctrl = ImagesDS(dfctrl, path_img)
 logger.info('Set up model')
 
 np.random.seed(SEED)
@@ -390,7 +392,7 @@ loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=16)
 rloader = D.DataLoader(ds_trn, batch_size=batch_size*4, shuffle=False, num_workers=16)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
 tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
-
+cloader = D.DataLoader(ds_ctrl, batch_size=batch_size*4, shuffle=False, num_workers=32)
 
 def oneshot(embtst, embtrn, trn_sirna_series):
     train_test_similarity = cosine_similarity(embtst, embtrn)
@@ -407,6 +409,7 @@ tlen = len(loader)
 rembls = []
 vembls = []
 tembls = []
+cembls = []
 vsshotls = []
 tsshotls = []
 
@@ -421,21 +424,36 @@ for epoch in range(EPOCHS-10, EPOCHS):
         param.requires_grad=False
     logger.info('Train file {}'.format(input_model_file))
     # Save raw embeddings
-    embtst = prediction(model, tloader)
-    embtrn = prediction(model, rloader)
-    embval = prediction(model, vloader)
-    tembls.append(embtst)
-    rembls.append(embtrn)
-    vembls.append(embval)
-    # Get cosine similarity matrix for test and val
-    snglshottst = oneshot(embtst, embtrn, train_dfall.sirna)    
-    snglshotval = oneshot(embval, embtrn, train_dfall.sirna)
-    vsshotls.append(snglshotval)   
-    tsshotls.append(snglshottst)
+    if CONTROL:
+        embctrl = prediction(model, cloader)
+        cembls.append(embctrl)
+    else:
+        embtst = prediction(model, tloader)
+        embtrn = prediction(model, rloader)
+        embval = prediction(model, vloader)
+        tembls.append(embtst)
+        rembls.append(embtrn)
+        vembls.append(embval)
+        # Get cosine similarity matrix for test and val
+        snglshottst = oneshot(embtst, embtrn, train_dfall.sirna)    
+        snglshotval = oneshot(embval, embtrn, train_dfall.sirna)
+        vsshotls.append(snglshotval)   
+        tsshotls.append(snglshottst)
 
-dumpobj(os.path.join( WORK_DIR, '_emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-dumpobj(os.path.join( WORK_DIR, '_emb_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
-dumpobj(os.path.join( WORK_DIR, '_emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-dumpobj(os.path.join( WORK_DIR, '_df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-dumpobj(os.path.join( WORK_DIR, '_df_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
-dumpobj(os.path.join( WORK_DIR, '_df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
+if CONTROL:
+    dumpobj(os.path.join( WORK_DIR, '_emb_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), cembls)
+    dumpobj(os.path.join( WORK_DIR, '_df_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), dfctrl)
+elif '256' in path_img:
+    dumpobj(os.path.join( WORK_DIR, '_emb_256_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_256_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_256_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
+    dumpobj(os.path.join( WORK_DIR, '_df_trn_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
+    dumpobj(os.path.join( WORK_DIR, '_df_val_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
+    dumpobj(os.path.join( WORK_DIR, '_df_tst_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
+else:
+    dumpobj(os.path.join( WORK_DIR, '_emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
+    dumpobj(os.path.join( WORK_DIR, '_df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
+    dumpobj(os.path.join( WORK_DIR, '_df_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
+    dumpobj(os.path.join( WORK_DIR, '_df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)

@@ -293,6 +293,34 @@ class DensNet(nn.Module):
         outdist = self.cosdist(outemb.unsqueeze(1), class_wts)
         return outln, outdist
 
+class DensNet(nn.Module):
+    def __init__(self, num_classes=1000, num_channels=6):
+        super().__init__()
+        preloaded = torchvision.models.densenet121(pretrained=True)
+        self.features = preloaded.features
+        self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
+        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.cosdist = nn.CosineSimilarity(dim=2, eps=1e-4)
+        del preloaded
+        
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        outemb = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
+        # Classifier output
+        outln = self.classifier(outemb)
+        classwt = self.classifier.weight
+        # Normalise
+        outemb = F.normalize(outemb, p=2, dim=outemb.dim()-1, eps=1e-12)
+        classwt = F.normalize(classwt, p=2, dim=classwt.dim()-1, eps=1e-12)
+        # Repeat this vector for each sample in the batch
+        class_wts = classwt.unsqueeze(0).repeat(outemb.size(0),1, 1)
+        # Cosine distance output
+        outdist = self.cosdist(outemb.unsqueeze(1), class_wts)
+        outdist = torch.sigmoid(outdist)
+        return outln, outdist#, outemb, self.classifier.weight
+
+
 def single_pred(dffold, probs):
     pred_df = dffold[['id_code','experiment']].copy()
     exps = pred_df['experiment'].unique()
@@ -446,7 +474,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
 
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
-scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
+scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=10, after_scheduler=scheduler_cosine)
 
 model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 
@@ -465,7 +493,7 @@ for epoch in range(EPOCHS):
     for param_group in optimizer.param_groups:
         logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
 
-    cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
+    cutmix_prob_warmup = cutmix_prob # if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
     for step, (x, y) in enumerate(loader): 

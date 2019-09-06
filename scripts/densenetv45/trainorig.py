@@ -60,11 +60,6 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
-<<<<<<< HEAD
-=======
-parser.add_option('-x', '--xtrasteps', action="store", dest="xtrasteps", help="root directory", default="10")
-
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -92,10 +87,6 @@ cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
 EPOCHS = int(options.epochs)
-<<<<<<< HEAD
-=======
-XTRASTEPS = int(options.xtrasteps)
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 lr=float(options.lr)
 lrmult=int(options.lrmult)
 batch_size = int(options.batchsize)
@@ -116,10 +107,6 @@ print('Image path : {}'.format(path_img))
 os.environ["TORCH_HOME"] = os.path.join( path_data, 'mount')
 logger.info(os.system('$TORCH_HOME'))
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
         
@@ -233,26 +220,15 @@ def train_aug(p=1.):
         VerticalFlip(),
         Transpose(),
         Cutout(
-<<<<<<< HEAD
             num_holes=8,
-=======
-            num_holes=12,
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
             max_h_size=24,
             max_w_size=24,
             fill_value=0,
             always_apply=False,
-<<<<<<< HEAD
             p=0.3,
         ),
         ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, 
                          rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
-=======
-            p=0.8,
-        ),
-        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, 
-                         rotate_limit=45, p=0.8, border_mode = cv2.BORDER_REPLICATE),
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
     ], p=p)
 
 def accuracy(output, target, topk=(1,)):
@@ -371,13 +347,10 @@ if validdf.shape[0]==0:
     validdf = huvec18_df
 y_val = validdf.sirna.values
 
-<<<<<<< HEAD
 #logger.info('******** Checking Input Data Shapes - Part 1 **********')
 #logger.info(validdf.shape)
 #logger.info(test_df.shape)
 #logger.info(y_val.shape)
-=======
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 
 # Add the controls
 #train_ctrl.sirna = 1108
@@ -389,24 +362,6 @@ trainfull = pd.concat([traindf,
                        test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
 
-<<<<<<< HEAD
-=======
-logger.info('******** Checking Input Data Shapes - Part 2 **********')
-logger.info(trainfull.shape)
-logger.info(validdf.shape)
-logger.info(test_df.shape)
-
-logger.info('Limit to u2os')
-trainfull = trainfull[trainfull.experiment.str.contains('U2')]
-validdf = validdf[validdf.experiment.str.contains('U2')]
-test_df = test_df[test_df.experiment.str.contains('U2')]
-
-logger.info('******** Checking Input Data Shapes - Part 2 **********')
-logger.info(trainfull.shape)
-logger.info(validdf.shape)
-logger.info(test_df.shape)
-
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 #trainfull = add_sites(trainfull)#.iloc[:300]
 #validdf = add_sites(validdf)#.iloc[:300]
 #test_df = add_sites(test_df)#.iloc[:300]
@@ -417,12 +372,9 @@ ds = ImagesDS(trainfull, path_img)
 ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
-<<<<<<< HEAD
 logger.info(validdf['experiment'].apply(lambda x: x.split('-')[0]).value_counts())
 
 
-=======
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 logger.info('******** Checking Input Data Shapes - Part 2 **********')
 logger.info(trainfull.shape)
 logger.info(validdf.shape)
@@ -437,18 +389,9 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
-<<<<<<< HEAD
 model = DensNet(num_classes=classes)
 #model= model.half()
 model.to(device)
-=======
-
-input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(EPOCHS-1)+'.bin'  )
-logger.info(input_model_file)
-model = DensNet(num_classes=classes)
-model.to(device)
-model.load_state_dict(torch.load(input_model_file))
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
@@ -459,16 +402,9 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
 #optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
-<<<<<<< HEAD
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
 
-=======
-'''
-scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
-scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
-'''
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 
 
@@ -477,13 +413,8 @@ tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-<<<<<<< HEAD
 for epoch in range(EPOCHS):
     scheduler_warmup.step()
-=======
-for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
-    # scheduler_warmup.step()
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
     tloss = 0
     model.train()
     acc = np.zeros(1)
@@ -494,11 +425,7 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
-<<<<<<< HEAD
     for x, y in loader: 
-=======
-    for tt, (x, y) in enumerate(loader): 
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
@@ -533,7 +460,6 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
         optimizer.step()
-<<<<<<< HEAD
         tloss += loss.item()
         if PRECISION != 'half':        
             acc += accuracy(output.cpu(), y.cpu())
@@ -550,33 +476,15 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
         continue
     model.eval()
     #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
-=======
-        tloss += loss.item()        
-        acc += accuracy(output.cpu(), y.cpu())
-        del loss, output, y, x# , target
-    
-    outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
-
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-    model.eval()
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
     preds, probs = prediction(model, vloader)
     probsls.append(probs)
     probsls = probsls[-nbags:]
     gc.collect()
     probsbag = sum(probsls)/len(probsls)
-<<<<<<< HEAD
-=======
-    '''
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
     if epoch < (EPOCHS-nbags-1):
         preds, probs = prediction(model, tloader)
         probststls.append(probs)
         probststls = probststls[-nbags:]
-<<<<<<< HEAD
-=======
-    '''
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
     # Only argmax the non controls
     probsbag = probsbag[:,:1108]
     predsmax = np.argmax(probsls[-1][:,:1108], 1)
@@ -586,7 +494,6 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
     outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
                     epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-<<<<<<< HEAD
     logger.info('-'*50)
     u2rows = validdf['experiment'].str.contains('U2')
     matchesu2 = (predsbagmax.flatten().astype(np.int32)[u2rows] == y_val.flatten().astype(np.int32) [u2rows]).mean()
@@ -595,13 +502,6 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
 '''
-=======
-
-'''
-dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
-dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
-
->>>>>>> 4c81725354626dc0e0d3d93ae41b5fb336166d83
 logger.info('Submission')
 probsbag = sum(probststls)/len(probststls)
 probsbag = probsbag[:,:1108]

@@ -60,6 +60,8 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
+parser.add_option('-x', '--xtrasteps', action="store", dest="xtrasteps", help="root directory", default="10")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -87,6 +89,7 @@ cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
 EPOCHS = int(options.epochs)
+XTRASTEPS = int(options.xtrasteps)
 lr=float(options.lr)
 lrmult=int(options.lrmult)
 batch_size = int(options.batchsize)
@@ -106,6 +109,7 @@ print('Image path : {}'.format(path_img))
 
 os.environ["TORCH_HOME"] = os.path.join( path_data, 'mount')
 logger.info(os.system('$TORCH_HOME'))
+
 
 class ImagesDS(D.Dataset):
     def __init__(self, df, img_dir, mode='train', channels=[1,2,3,4,5,6]):
@@ -220,15 +224,15 @@ def train_aug(p=1.):
         VerticalFlip(),
         Transpose(),
         Cutout(
-            num_holes=8,
+            num_holes=12,
             max_h_size=24,
             max_w_size=24,
             fill_value=0,
             always_apply=False,
-            p=0.3,
+            p=0.8,
         ),
-        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, 
-                         rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
+        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, 
+                         rotate_limit=45, p=0.8, border_mode = cv2.BORDER_REPLICATE),
     ], p=p)
 
 def accuracy(output, target, topk=(1,)):
@@ -298,6 +302,16 @@ def prediction(model, loader):
     probs = np.concatenate(probs, 0)
     return preds, probs
 
+def evalmodel(model, epoch):
+    model.eval()
+    preds, probs = prediction(model, vloader)
+    predsmax = np.argmax(probs[:,:1108], 1)
+    matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
+    outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}'.format(\
+                    epoch+1, fold, matchesmax/predsmax.shape[0])
+    logger.info('{}'.format(outmsg))
+
+
 logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
@@ -347,10 +361,6 @@ if validdf.shape[0]==0:
     validdf = huvec18_df
 y_val = validdf.sirna.values
 
-#logger.info('******** Checking Input Data Shapes - Part 1 **********')
-#logger.info(validdf.shape)
-#logger.info(test_df.shape)
-#logger.info(y_val.shape)
 
 # Add the controls
 #train_ctrl.sirna = 1108
@@ -361,6 +371,21 @@ trainfull = pd.concat([traindf,
                        test_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
+
+logger.info('******** Checking Input Data Shapes - Part 2 **********')
+logger.info(trainfull.shape)
+logger.info(validdf.shape)
+logger.info(test_df.shape)
+
+logger.info('Limit to u2os')
+trainfull = trainfull[trainfull.experiment.str.contains('U2')]
+validdf = validdf[validdf.experiment.str.contains('U2')]
+test_df = test_df[test_df.experiment.str.contains('U2')]
+
+logger.info('******** Checking Input Data Shapes - Part 2 **********')
+logger.info(trainfull.shape)
+logger.info(validdf.shape)
+logger.info(test_df.shape)
 
 #trainfull = add_sites(trainfull)#.iloc[:300]
 #validdf = add_sites(validdf)#.iloc[:300]
@@ -376,6 +401,11 @@ logger.info('******** Checking Input Data Shapes - Part 2 **********')
 logger.info(trainfull.shape)
 logger.info(validdf.shape)
 logger.info(test_df.shape)
+if validdf.shape[0]==0:
+    validdf = huvec18_df
+y_val = validdf.sirna.values
+
+
 
 logger.info('Set up model')
 
@@ -386,22 +416,29 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
-model = DensNet(num_classes=classes)
-#model= model.half()
-model.to(device)
+
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
 tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
+
+for epoch in range(EPOCHS-10, EPOCHS):
+    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+    logger.info(input_model_file)
+    model = DensNet(num_classes=classes)
+    model.to(device)
+    model.load_state_dict(torch.load(input_model_file))
+    if fold != 5: evalmodel(model, epoch)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-4)
 #optimizer = optimizers.FusedAdam(model.parameters(), lr=lr, eps=1e-4)
 
+'''
 scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS)
 scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_epoch=20, after_scheduler=scheduler_cosine)
-
+'''
 model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 
 
@@ -410,8 +447,8 @@ tlen = len(loader)
 probsls = []
 probststls = []
 ep_accls = []
-for epoch in range(EPOCHS):
-    scheduler_warmup.step()
+for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
+    # scheduler_warmup.step()
     tloss = 0
     model.train()
     acc = np.zeros(1)
@@ -422,7 +459,7 @@ for epoch in range(EPOCHS):
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
-    for x, y in loader: 
+    for tt, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
@@ -457,41 +494,17 @@ for epoch in range(EPOCHS):
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
         optimizer.step()
-        tloss += loss.item()
-        if PRECISION != 'half':        
-            acc += accuracy(output.cpu(), y.cpu())
+        tloss += loss.item()        
+        acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    if (epoch % 5 == 0) or (epoch>39) :
-        torch.save(model.state_dict(), output_model_file)
-    if PRECISION != 'half':
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
-    else:
-        outmsg = 'Epoch {} -> Train Loss: {:.4f}'.format(epoch+1, tloss/tlen)
-    logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
-    if epoch < 0:
-        continue
-    model.eval()
-    #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
-    preds, probs = prediction(model, vloader)
-    probsls.append(probs)
-    probsls = probsls[-nbags:]
-    gc.collect()
-    probsbag = sum(probsls)/len(probsls)
-    if epoch < (EPOCHS-nbags-1):
-        preds, probs = prediction(model, tloader)
-        probststls.append(probs)
-        probststls = probststls[-nbags:]
-    # Only argmax the non controls
-    probsbag = probsbag[:,:1108]
-    predsmax = np.argmax(probsls[-1][:,:1108], 1)
-    predsbagmax = np.argmax(probsbag, 1)
-    matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
-    matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
-    outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
-                    epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
+    torch.save(model.state_dict(), output_model_file) 
+    outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
+    if fold != 5: evalmodel(model, epoch)
+
+'''
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
 
@@ -504,4 +517,4 @@ submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = single_pred(submission, probsbag).astype(int)
 # submission['sirna'] = predsbag.astype(int)
 submission.to_csv('mixme_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
-
+'''

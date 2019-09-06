@@ -427,6 +427,9 @@ logger.info('Start training')
 tlen = len(loader)
 probsls = []
 probststls = []
+probsls_swa = []
+probststls_swa = []
+
 ep_accls = []
 for epoch in range( EPOCHS):
     scheduler_warmup.step()
@@ -446,7 +449,7 @@ for epoch in range( EPOCHS):
         #if tt > 10:
         #    logger.info(tt)
         #    break
-        x = x.to(device)#.half()
+        x = x.to(device)
         y = y.cuda()
         # cutmix
 
@@ -464,7 +467,6 @@ for epoch in range( EPOCHS):
             x[:, :, bbx1:bbx2, bby1:bby2] = x[rand_index, :, bbx1:bbx2, bby1:bby2]
             # compute output
             input_var = torch.autograd.Variable(x, requires_grad=True)#.half()
-            #input_var = torch.autograd.Variable(x1, requires_grad=True)
             target_a_var = torch.autograd.Variable(target_a)#.half()
             target_b_var = torch.autograd.Variable(target_b)#.half()
             output = model(input_var)
@@ -485,12 +487,13 @@ for epoch in range( EPOCHS):
             acc += accuracy(output.cpu(), y.cpu())
         del loss, output, y, x# , target
     output_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
-    output_swa_model_file = output_swa_model_file.replace('.bin', '_swa.bin')
+    output_swa_model_file = output_model_file.replace('.bin', '_swa.bin')
     if (epoch % 5 == 0) or (epoch>39) :
         torch.save(model.state_dict(), output_model_file)
     logger.info('Update SWA')
     utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
     swa_n += 1
+    #utils.bn_update(tmploader, swa_model)
     utils.bn_update(loader, swa_model)
     torch.save(swa_model.state_dict(), output_swa_model_file)
     logger.info('done SWA step {}'.format(swa_n))
@@ -505,29 +508,31 @@ for epoch in range( EPOCHS):
     model.eval()
     swa_model.eval()
     #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
-    for mod in [model, swa_model]:
+    #print('Fold {} Bag {}'.format(fold, 1+len(probststls)))
+    for (mod,probsl,probststl) in zip([model, swa_model], [probsls, probsls_swa],[probststls, probststls_swa]):
         preds, probs = prediction(model, vloader)
-        probsls.append(probs)
-        probsls = probsls[-nbags:]
+        #preds, probs = prediction(model, tmploader)
+        probsl.append(probs)
+        probsl = probsl[-nbags:]
         gc.collect()
-        probsbag = sum(probsls)/len(probsls)
+        probsbag = sum(probsl)/len(probsl)
         if epoch < (EPOCHS-nbags-1):
             preds, probs = prediction(model, tloader)
-            probststls.append(probs)
-            probststls = probststls[-nbags:]
+            probststl.append(probs)
+            probststl = probststl[-nbags:]
         # Only argmax the non controls
         probsbag = probsbag[:,:1108]
-        predsmax = np.argmax(probsls[-1][:,:1108], 1)
+        predsmax = np.argmax(probsl[-1][:,:1108], 1)
         predsbagmax = np.argmax(probsbag, 1)
         matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
         matchesbagmax = (predsbagmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()    
         outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}  -> Accuracy Bag Max: {:.4f} - NPreds {}'.format(\
-                        epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsls))
+                        epoch+1, fold, matchesmax/predsmax.shape[0], matchesbagmax/predsbagmax.shape[0], len(probsl))
         logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)
 dumpobj(os.path.join( WORK_DIR, 'tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), probststls)
-
+'''
 logger.info('Submission')
 probsbag = sum(probststls)/len(probststls)
 probsbag = probsbag[:,:1108]
@@ -537,4 +542,4 @@ submission = pd.read_csv(path_data + '/test.csv')
 submission['sirna'] = single_pred(submission, probsbag).astype(int)
 # submission['sirna'] = predsbag.astype(int)
 submission.to_csv('mixme_fold{}.csv'.format(fold), index=False, columns=['id_code','sirna'])
-
+'''

@@ -253,14 +253,19 @@ class DensNet(nn.Module):
         preloaded = torchvision.models.densenet121(pretrained=True)
         self.features = preloaded.features
         self.features.conv0 = nn.Conv2d(num_channels, 64, 7, 2, 3)
-        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        #self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.cosdist = nn.CosineSimilarity(dim=2, eps=1e-4)
+        self.coswt = torch.nn.Parameter(torch.nn.Linear(1024, num_classes).weight)
         del preloaded
         
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out = self.classifier(out)
+        #out = self.classifier(out)
+        # Cosine distance output
+        out = self.cosdist(out.unsqueeze(1), \
+                               self.coswt.unsqueeze(0).repeat(out.size(0),1, 1))
         return out
 
 def single_pred(dffold, probs):
@@ -347,27 +352,15 @@ if validdf.shape[0]==0:
     validdf = huvec18_df
 y_val = validdf.sirna.values
 
-#logger.info('******** Checking Input Data Shapes - Part 1 **********')
-#logger.info(validdf.shape)
-#logger.info(test_df.shape)
-#logger.info(y_val.shape)
 
 # Add the controls
-#train_ctrl.sirna = 1108
-#test_ctrl.sirna = 1108
 trainfull = pd.concat([traindf, 
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1)], 0)
-classes = trainfull.sirna.max() + 1
+classes = trainfull.sirna.max() + 1      
 
-#trainfull = add_sites(trainfull)#.iloc[:300]
-#validdf = add_sites(validdf)#.iloc[:300]
-#test_df = add_sites(test_df)#.iloc[:300]
-#y_val = y_val [:150]      
-
-# ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_img)
 ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
@@ -404,7 +397,6 @@ scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=lrmult, total_ep
 
 model, optimizer = amp.initialize(model, optimizer, opt_level="O2", keep_batchnorm_fp32=False, loss_scale="dynamic")
 
-
 logger.info('Start training')
 tlen = len(loader)
 probsls = []
@@ -420,9 +412,13 @@ for epoch in range(EPOCHS):
         logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
 
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
-    logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
+    controls_ratio = 1.0 if epoch < 20 else (scheduler_warmup.get_lr()[0]/(lrmult*lr)) # min(1.0, ( epoch - 20 ) / (EPOCHS - 20))
+    class_weights = [1.0]*1108 + [controls_ratio]*(1139-1108)
+    class_weights = torch.tensor(class_weights).cuda()
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    logger.info('Cutmix probability {} controls ratio {}'.format(cutmix_prob_warmup, controls_ratio))
 
-    for x, y in loader: 
+    for step, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
         # cutmix
@@ -445,7 +441,6 @@ for epoch in range(EPOCHS):
             target_a_var = torch.autograd.Variable(target_a)#.half()
             target_b_var = torch.autograd.Variable(target_b)#.half()
             output = model(input_var)
-
             loss = criterion(output, target_a_var) * lam + criterion(output, target_b_var) * (1. - lam)
         else:
             # compute output
@@ -453,7 +448,6 @@ for epoch in range(EPOCHS):
             target_var = torch.autograd.Variable(y)
             output = model(input_var)
             loss = criterion(output, target_var)
-        #loss.backward()
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()
         optimizer.step()

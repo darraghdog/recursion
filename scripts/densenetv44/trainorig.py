@@ -386,9 +386,14 @@ if n_gpu > 0:
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 
+
+
+input_model_file = os.path.join( WORK_DIR, 'weights/pytorch_cut_model_512_densenet099_baseline.bin')
+logger.info(input_model_file)
 model = DensNet(num_classes=classes)
 #model= model.half()
 model.to(device)
+model.load_state_dict(torch.load(input_model_file))
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
 vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
@@ -415,10 +420,12 @@ for epoch in range(EPOCHS):
     tloss = 0
     model.train()
     acc = np.zeros(1)
-
+    if epoch <20:
+        continue
     for param_group in optimizer.param_groups:
         logger.info('Epoch: {} lr: {}'.format(epoch+1, param_group['lr']))  
 
+    
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
