@@ -198,6 +198,62 @@ def expshotdelta_v5(embtst, embtrn, sirnas, trnexp, tstexp, dist_types=['cosine'
     
     return tts
 
+def expshotdelta_v6(embtst, embtrn, embctl, sirnas, trnexp, tstexp, ctlexp, dist_types=['cosine', 'l1']):
+    '''
+    LB : 0.954
+    CV : 
+        HEPG2    0.764903
+        HUVEC    0.907338
+        RPE      0.892171
+        U2OS     0.751805
+    '''
+    # Get l2 norm
+    embnorm = np.concatenate((embtrn, embtst, embctl), 0)
+    embnorm = normalize(embnorm, axis=1, norm='l2')
+    embtrn = embnorm[:embtrn.shape[0]]
+    embtst = embnorm[embtrn.shape[0]:-embctl.shape[0]]
+    embctl = embnorm[-embctl.shape[0]:]
+    
+    # Create indexed df from each embedding matrix
+    embtst = pd.DataFrame(embtst, index = tstexp)
+    embctl = pd.DataFrame(embctl, index = ctlexp)
+    embtrn = pd.DataFrame(embtrn, index = sirnas)
+    embtrn['experiment_grp'] = trnexp.apply(lambda x: x.split('-')[0]).values
+    embctl['experiment_grp'] = ctlexp.apply(lambda x: x.split('-')[0]).values
+    
+    # Mean embedding per experiment and per experiment group for train
+    embgrptrnavg = embtrn.reset_index().groupby(['experiment_grp']).mean()
+    embtrn = embtrn.reset_index().groupby(['sirna', 'experiment_grp']).mean()
+    # Mean embedding per experiment for test
+    embgrptstavg = embtst.reset_index().groupby(['experiment']).mean()
+    embgrpctltrnavg = pd.concat([embtrn, embctl], 0).reset_index().groupby(['experiment_grp']).mean()
+    embgrpctltstavg = pd.concat([embtst, embctl], 0).reset_index().groupby(['experiment']).mean()
+    
+    # Get train and test experiment groups and sirnas
+    trnexp_grp = embtrn.reset_index()['experiment_grp'].values
+    tstexp_grp = embtst.reset_index()['experiment'].apply(lambda x: x.split('-')[0]).values
+    sirnas = embtrn.reset_index()['sirna'].values    
+    
+    # Subtract mean experiment embedding 
+    embtrn = embtrn.values - embgrpctltrnavg.loc[trnexp_grp][embtrn.columns].values 
+    embtst = embtst.values - embgrpctltstavg.loc[tstexp][embtst.columns].values  
+    
+    # Get calculate distance and -ve to get similarity
+    ttsls = [(pairwise_distances(embtst, embtrn, metric = d)) for d in dist_types]
+    # Standardise both distance metrics
+    tts = -1 * sum([(m-np.mean(m))/np.std(m) for m in ttsls])
+    tts = tts.transpose() 
+    
+    # Create mask where experiments are not the same, to remove incidental similarity
+    mask = pd.DataFrame(np.zeros(tts.shape))
+    for e in np.unique(tstexp_grp):
+        mask.iloc[np.where(trnexp_grp==e)[0], np.where(tstexp_grp==e)[0]] = 1
+    tts[mask==0] = tts.min()
+    tts = pd.DataFrame(tts, index = sirnas)
+    tts = tts.reset_index().groupby('index').max()
+    tts = tts.transpose().values
+    
+    return tts
 
 
 path_data = '/Users/dhanley2/Documents/Personal/recursion/sub/tts/'
@@ -216,25 +272,32 @@ for i in tqdm(range(5)):
     validx = ~traindf['experiment'].isin(folds[folds['fold']==i]['experiment'].tolist()).values
     embtrnls = loadobj(os.path.join( path_data, '_emb_trn_probs_512_fold{}.pk'.format(i)))
     embvalls = loadobj(os.path.join( path_data, '_emb_val_probs_512_fold{}.pk'.format(i)))
+    embctlls = loadobj(os.path.join( path_data, '_emb_ctrl_probs_512_fold5.pk'))
     embtrn = (sum(embtrnls)/len(embtrnls))[validx]
     embval = sum(embvalls)/len(embvalls)
+    embctl = sum(embctlls)/len(embctlls)
     dftrn = loadobj(os.path.join( path_data, '_df_trn_probs_512_fold{}.pk'.format(i)))
     dfval = loadobj(os.path.join( path_data, '_df_val_probs_512_fold{}.pk'.format(i)))
+    dfctl = loadobj(os.path.join( path_data, '_df_ctrl_probs_512_fold5.pk'))
     dftrn = dftrn[validx]
-    traindf['pred_cossim'].loc[i] = expshotdelta_v5(embval, embtrn, dftrn.sirna, dftrn.experiment, dfval.experiment).argmax(1)
-    break
+    traindf['pred_cossim'].loc[i] = expshotdelta_v6(embtst=embval, embtrn=embtrn, embctl=embctl, \
+                               sirnas=dftrn.sirna, trnexp=dftrn.experiment, tstexp=dfval.experiment, \
+                               ctlexp=dfctl.experiment).argmax(1)
+
+
 traindf['eqpred_cossim'] = (traindf['pred_cossim']==traindf['sirna']).astype(np.int8)
 traindf['exptype'] = traindf['experiment'].apply(lambda x: x.split('-')[0])
 print(traindf['eqpred_cossim'].mean())
 print(traindf.groupby('exptype')['eqpred_cossim'].mean())
 print(traindf.groupby('experiment')['eqpred_cossim'].mean())
-
+'''
 HEPG2-05    0.783394
 HUVEC-03    0.966606
 HUVEC-08    0.950361
 HUVEC-13    0.966425
 RPE-02      0.918773
 RPE-07      0.831227
+'''
 
 '''
 Make Sub

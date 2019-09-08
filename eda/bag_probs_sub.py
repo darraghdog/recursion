@@ -45,18 +45,18 @@ valdf = huvec18df
 y_val = valdf['sirna'].values
 
 # Load predictions
-predval = loadobj(os.path.join( path_data, '../sub/weights/v36/val_probs_512_fold5.pk'))
-predtst = loadobj(os.path.join( path_data, '../sub/weights/v36/tst_probs_512_fold5.pk'))
+predval = loadobj(os.path.join( path_data, '../sub/tts/val_probs_256_fold5.pk'))
+predtst = loadobj(os.path.join( path_data, '../sub/tts/tst_probs_256_fold5.pk'))
 print(len(predval))
 
-for i in range(21):
-    predmax = np.argmax(hmean(predval[-i:])[:,:1108], 1)
+for i in range(10):
+    predmax = np.argmax(hmean(predval[-5:])[:,:1108], 1)
     matchesbagmax = (predmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum() 
     print('Last {} Accuracy Bag Max: {:.4f}'.format(i, matchesbagmax/predmax.shape[0]))
 
-probsdf = pd.DataFrame(hmean(predtst)[:,:1108])
+probsdf = pd.DataFrame(hmean(predtst[-5:])[:,:1108])
 probsdf['id_code'] = testdf['id_code']
-probsdf.to_csv(os.path.join( path_data, '../sub/weights/v36/probs_v36_fold5.csv.gz'), index=False, compression='gzip')
+probsdf.to_csv(os.path.join( path_data, '../sub/weights/v31/probs_v31_256_fold5.csv'), index=False)
 
 '''
 subproc = pd.read_csv('~/Downloads/sub_v36_fold5.csv')

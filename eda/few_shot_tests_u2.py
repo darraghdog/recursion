@@ -211,9 +211,11 @@ traindf = traindf.set_index('fold')
 Full validation
 '''
 traindf['pred_cossim'] = -1
+u2_run = True
 
 for i in tqdm(range(5)):
     validx = ~traindf['experiment'].isin(folds[folds['fold']==i]['experiment'].tolist()).values
+    val_u2 = u2_run & (traindf['experiment'][~validx].str.contains('U2').sum()>0)
     embtrnls = loadobj(os.path.join( path_data, '_emb_trn_probs_512_fold{}.pk'.format(i)))
     embvalls = loadobj(os.path.join( path_data, '_emb_val_probs_512_fold{}.pk'.format(i)))
     embtrn = (sum(embtrnls)/len(embtrnls))[validx]
@@ -222,19 +224,43 @@ for i in tqdm(range(5)):
     dfval = loadobj(os.path.join( path_data, '_df_val_probs_512_fold{}.pk'.format(i)))
     dftrn = dftrn[validx]
     traindf['pred_cossim'].loc[i] = expshotdelta_v5(embval, embtrn, dftrn.sirna, dftrn.experiment, dfval.experiment).argmax(1)
-    break
+    if val_u2 :
+        embtrnls = loadobj(os.path.join( path_data, 'u2/_emb_u2_trn_probs_512_fold{}.pk'.format(i)))
+        embvalls = loadobj(os.path.join( path_data, 'u2/_emb_u2_val_probs_512_fold{}.pk'.format(i)))
+        dftrn = loadobj(os.path.join( path_data, 'u2/_df_u2_trn_probs_512_fold{}.pk'.format(i)))
+        dfval = loadobj(os.path.join( path_data, 'u2/_df_u2_val_probs_512_fold{}.pk'.format(i)))
+        validx = ~dftrn.experiment.isin(dfval.experiment)
+        dftrn = dftrn[validx]
+        embtrn = (sum(embtrnls)/len(embtrnls))[validx]
+        embval = sum(embvalls)/len(embvalls)
+        predu2 = expshotdelta_v5(embval, embtrn, dftrn.sirna, dftrn.experiment, dfval.experiment).argmax(1)
+        traindf = traindf.reset_index().set_index('id_code')
+        traindf['pred_cossim'].loc[dfval.id_code] = predu2
+        traindf = traindf.reset_index().set_index('fold')
+        
 traindf['eqpred_cossim'] = (traindf['pred_cossim']==traindf['sirna']).astype(np.int8)
 traindf['exptype'] = traindf['experiment'].apply(lambda x: x.split('-')[0])
 print(traindf['eqpred_cossim'].mean())
 print(traindf.groupby('exptype')['eqpred_cossim'].mean())
 print(traindf.groupby('experiment')['eqpred_cossim'].mean())
 
-HEPG2-05    0.783394
-HUVEC-03    0.966606
-HUVEC-08    0.950361
-HUVEC-13    0.966425
-RPE-02      0.918773
-RPE-07      0.831227
+'''Without u2 finetune
+HEPG2    0.764903
+HUVEC    0.907338
+RPE      0.892171
+U2OS     0.751805
+
+U2OS-01     0.771661
+U2OS-02     0.664260
+U2OS-03     0.819495
+'''
+
+'''With u2 finetune
+HEPG2    0.764903
+HUVEC    0.907338
+RPE      0.892171
+U2OS     0.783394
+'''
 
 '''
 Make Sub
@@ -249,6 +275,19 @@ embtst = sum(embtst)/len(embtst)
 ttsexp = expshotdelta_v5(embtst, embtrn, dftrn.sirna, dftrn.experiment, dftst.experiment)
 ttsexp = pd.DataFrame(ttsexp)
 ttsexp['id_code'] = testdf['id_code'].values
-ttsexp.to_csv(os.path.join( path_data, 'ttsexp_mask_v31_cosv5_fold5.csv'),index = False)
-# Run : python post_processing_leak.py ttsexp_mask_v31_cosv5_fold5.csv ttsexp_mask_v31_cosv5_fold5_ddlleak.csv 
-#ttsleak = pd.read_csv(os.path.join( path_data, 'ttsexp_mask_v31_cosv5_fold5_ddlleak.csv'))
+ttsexp = ttsexp.set_index('id_code')
+
+# LB0.968 was u2_v1
+dftrn = loadobj(os.path.join( path_data, 'u2_v2/_df_u2_trn_probs_512_fold5.pk'))
+dftst = loadobj(os.path.join( path_data, 'u2_v2/_df_u2_tst_probs_512_fold5.pk'))
+embtrn = loadobj(os.path.join( path_data, 'u2_v2/_emb_u2_trn_probs_512_fold5.pk'))
+embtst = loadobj(os.path.join( path_data, 'u2_v2/_emb_u2_tst_probs_512_fold5.pk'))
+embtrn = sum(embtrn)/len(embtrn)
+embtst = sum(embtst)/len(embtst)
+ttsexpu2 = expshotdelta_v5(embtst, embtrn, dftrn.sirna, dftrn.experiment, dftst.experiment)
+ttsexp.loc[dftst.id_code] = ttsexpu2
+
+ttsexp = ttsexp.reset_index()[list(range(1108))+['id_code']]
+
+ttsexp.to_csv(os.path.join( path_data, 'ttsexp_mask_v31_finetune_u2_500ep_fold5.csv'), index = False)
+# Run : python post_processing_leak.py ttsexp_mask_v31_finetune_u2_500ep_fold5.csv ttsexp_mask_v31_finetune_u2_500ep_fold5_ddlleak.csv 
