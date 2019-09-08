@@ -403,16 +403,6 @@ vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_worke
 tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
 cloader = D.DataLoader(ds_ctrl, batch_size=batch_size*4, shuffle=False, num_workers=32)
 
-def oneshot(embtst, embtrn, trn_sirna_series):
-    train_test_similarity = cosine_similarity(embtst, embtrn)
-    train_test_similarity.shape #(19897, , 36515)
-    tts = train_test_similarity.transpose()
-    tts = pd.DataFrame(tts, index = trn_sirna_series)
-    tts = tts.reset_index().groupby('sirna').max()
-    tts = tts.transpose().values
-    tts.shape #(19897, 1108)
-    return tts
-
 logger.info('Start training')
 tlen = len(loader)
 rembls = []
@@ -423,7 +413,7 @@ vsshotls = []
 tsshotls = []
 
 for epoch in range(EPOCHS-30, EPOCHS):
-    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)++'_{}.bin'.format(EXPERIMENTFILTER)  )
+    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'_{}.bin'.format(EXPERIMENTFILTER)  )
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
     model.to(device)
@@ -444,20 +434,9 @@ for epoch in range(EPOCHS-30, EPOCHS):
         rembls.append(embtrn)
         if fold!=5: vembls.append(embval)
 
-if CONTROL:
-    dumpobj(os.path.join( WORK_DIR, '_emb_u2_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), cembls)
-    dumpobj(os.path.join( WORK_DIR, '_df_u2_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), dfctrl)
-elif '256' in path_img:
-    dumpobj(os.path.join( WORK_DIR, '_emb_u2_256_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    if fold!=5: dumpobj(os.path.join( WORK_DIR, '_emb_u2_256_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_u2_256_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-    dumpobj(os.path.join( WORK_DIR, '_df_u2_trn_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-    if fold!=5: dumpobj(os.path.join( WORK_DIR, '_df_u2_val_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
-    dumpobj(os.path.join( WORK_DIR, '_df_u2_tst_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
-else:
-    dumpobj(os.path.join( WORK_DIR, '_emb_u2_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    if fold!=5: dumpobj(os.path.join( WORK_DIR, '_emb_u2_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_u2_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-    dumpobj(os.path.join( WORK_DIR, '_df_u2_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-    if fold!=5: dumpobj(os.path.join( WORK_DIR, '_df_u2_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
-    dumpobj(os.path.join( WORK_DIR, '_df_u2_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
+dumpobj(os.path.join( WORK_DIR, '_emb_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), rembls)
+if fold!=5: dumpobj(os.path.join( WORK_DIR, '_emb_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER,PROBS_NAME, fold)), vembls)
+dumpobj(os.path.join( WORK_DIR, '_emb_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), tembls)    
+dumpobj(os.path.join( WORK_DIR, '_df_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), train_dfall)
+if fold!=5: dumpobj(os.path.join( WORK_DIR, '_df_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), validdf)
+dumpobj(os.path.join( WORK_DIR, '_df_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER,  PROBS_NAME, fold)), test_df)

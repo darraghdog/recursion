@@ -292,15 +292,38 @@ def predictionEmbedding(model, loader):
     probs = np.concatenate(probs, 0)
     return probs
 
+
+@torch.no_grad()
+def prediction(model, loader):
+    criterion = nn.CrossEntropyLoss()
+    preds = np.empty(0)
+    vlen = len(loader)
+    probs = []
+    vloss = 0
+    for t, (x, y) in enumerate(loader):
+        x = x.to(device)
+        y = y.cuda()
+        output = model(x)
+        target_var = torch.autograd.Variable(y)
+        loss = criterion(output, target_var)
+        vloss += loss.item() 
+        idx = output.max(dim=-1)[1].cpu().numpy()
+        outmat = torch.sigmoid(output.cpu()).numpy()
+        preds = np.append(preds, idx, axis=0)
+        probs.append(outmat)
+    probs = np.concatenate(probs, 0)
+    return preds, probs, vloss/vlen
+
 def evalmodel(model, epoch):
     model.eval()
-    preds, probs = prediction(model, vloader)
+    preds, probs, vloss = prediction(model, vloader)
     predsmax = np.argmax(probs[:,:1108], 1)
     matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
     acc = matchesmax/predsmax.shape[0]
-    outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}'.format(epoch+1, fold, acc)
+    outmsg = 'Epoch {} -> Fold {} -> Val Loss  {:.4f} Acc Ep Max: {:.4f}'.format(epoch+1, fold, vloss, acc)
     logger.info('{}'.format(outmsg))
-    return acc
+    return acc, vloss
+
 
 
 logger.info('Load Dataframes')
@@ -373,7 +396,8 @@ val_loss = []
 trn_loss = []
 epochls = []
 for epoch in range(EPOCHS-10, EPOCHS):
-    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+    LOADWT = '../densenetv31/weights/pytorch_cut_model_512_densenet{}{}.bin'.format(fold, epoch)
+    input_model_file = os.path.join( WORK_DIR, '../densenetv31', LOADWT )
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
     model.to(device)
