@@ -1,5 +1,5 @@
 N_GPU=1
-WDIR='densenetv47'
+WDIR='densenetv51'
 SIZE='512'
 PRIO='lowpriority'
 

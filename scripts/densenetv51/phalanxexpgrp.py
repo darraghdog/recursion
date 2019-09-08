@@ -373,14 +373,15 @@ classes = trainfull.sirna.max() + 1
 logger.info('Merge groups')
 grpdf = pd.read_csv( os.path.join( path_data, 'experiment_plate_group.csv'))#.iloc[:3000]
 trainfull = pd.merge(trainfull, grpdf, on=['experiment', 'plate'], how='left')
+train_dfall = pd.merge(train_dfall, grpdf, on=['experiment', 'plate'], how='left')
 validdf = pd.merge(validdf, grpdf, on=['experiment', 'plate'], how='left')
 test_df = pd.merge(test_df, grpdf, on=['experiment', 'plate'], how='left')
 
 logger.info('Limit to {}'.format(EXPERIMENTFILTER))
-trainfull = trainfull[trainfull.experiment.str.contains(EXPERIMENTFILTER)]
-validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER)]
-test_df = test_df[test_df.experiment.str.contains(EXPERIMENTFILTER)]
-train_dfall = train_dfall[train_dfall.experiment.str.contains(EXPERIMENTFILTER)]
+trainfull = trainfull[trainfull.sirna_grp.str.contains(EXPERIMENTFILTER)]
+validdf = validdf[validdf.sirna_grp.str.contains(EXPERIMENTFILTER)]
+test_df = test_df[test_df.sirna_grp.str.contains(EXPERIMENTFILTER)]
+train_dfall = train_dfall[train_dfall.sirna_grp.str.contains(EXPERIMENTFILTER)]
 
 
 # ds = ImagesDS(traindf, path_data)
