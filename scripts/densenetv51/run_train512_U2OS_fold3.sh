@@ -1,10 +1,9 @@
 N_GPU=1
 WDIR='densenetv51'
-FOLD=5
 SIZE='512'
 
 
-FOLD=2
+FOLD=3
 for FILTER in '1U2OS' '2U2OS' '3U2OS' '4U2OS'
 do
     bsub  -q lowpriority -gpu "num=$N_GPU:mode=exclusive_process" -app gpu -n =$N_GPU  -env LSB_CONTAINER_IMAGE=darraghdog/kaggle:apex_build \

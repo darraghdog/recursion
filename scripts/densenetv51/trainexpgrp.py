@@ -525,7 +525,7 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
     if fold != 5: 
         valaccls.append(evalmodel(model, epoch))
         epochls.append(epoch)
-        scoresdf = pd.DataFrame({'experiment' : [EXPERIMENTFILTER]*len(val_acc), \
+        scoresdf = pd.DataFrame({'experiment' : [EXPERIMENTFILTER]*len(valaccls), \
                                  'epoch' : epochls, \
                                  'val_acc' : valaccls})
         scoresdf.to_csv(os.path.join( WORK_DIR, 'scores_{}_fold{}.csv'.format(EXPERIMENTFILTER, fold)), index = False)
