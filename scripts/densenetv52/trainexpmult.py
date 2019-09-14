@@ -383,8 +383,8 @@ logger.info(test_df.shape)
 
 logger.info('Limit to {}'.format(EXPERIMENTFILTER))
 trainfull = trainfull[trainfull.experiment.str.contains(EXPERIMENTFILTER)]
-validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER)]
-test_df = test_df[test_df.experiment.str.contains(EXPERIMENTFILTER)]
+validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER.split('|')[0])]
+test_df = test_df[test_df.experiment.str.contains(EXPERIMENTFILTER.split('|')[0])]
 
 
 logger.info('******** Checking Input Data Shapes - Part 2 **********')
