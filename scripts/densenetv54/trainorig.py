@@ -461,6 +461,7 @@ for epoch in range(EPOCHS):
             target_var = torch.autograd.Variable(y)
             output = model(input_var)
             loss = criterion(output, target_var)
+        loss = loss/ACCUM
         #loss.backward()
         with amp.scale_loss(loss, optimizer) as scaled_loss:
             scaled_loss.backward()

@@ -62,6 +62,8 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
+parser.add_option('-z', '--emb', action="store", dest="emb", help="Return Embedding", default="1")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -89,6 +91,7 @@ for (k,v) in options.__dict__.items():
 cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
+EMB = int(options.emb)
 EPOCHS = int(options.epochs)
 lr=float(options.lr)
 lrmult=int(options.lrmult)
@@ -275,7 +278,8 @@ class DensNet(nn.Module):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out1 = self.classifier(out)
+        if EMB!=1:
+            out = self.classifier(out)
         return  out
 
 def single_pred(dffold, probs):
@@ -361,11 +365,14 @@ y_val = validdf.sirna.values
 # Add the controls
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
+
 trainfull = pd.concat([traindf, 
+                       pseudo,
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1)], 0)
+
 classes = trainfull.sirna.max() + 1
 
 # ds = ImagesDS(traindf, path_data)
@@ -410,8 +417,6 @@ rembls = []
 vembls = []
 tembls = []
 cembls = []
-vsshotls = []
-tsshotls = []
 
 for epoch in range(EPOCHS-10, EPOCHS):
     input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
@@ -428,32 +433,22 @@ for epoch in range(EPOCHS-10, EPOCHS):
         embctrl = prediction(model, cloader)
         cembls.append(embctrl)
     else:
-        embtst = prediction(model, tloader)
+        embtst = prediction(model, loader)
         embtrn = prediction(model, rloader)
         embval = prediction(model, vloader)
         tembls.append(embtst)
         rembls.append(embtrn)
         vembls.append(embval)
-        # Get cosine similarity matrix for test and val
-        snglshottst = oneshot(embtst, embtrn, train_dfall.sirna)    
-        snglshotval = oneshot(embval, embtrn, train_dfall.sirna)
-        vsshotls.append(snglshotval)   
-        tsshotls.append(snglshottst)
+
+OUTTYPE = 'EMB' if EMB==1 else 'LOGIT'
 
 if CONTROL:
     dumpobj(os.path.join( WORK_DIR, '_emb_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), cembls)
     dumpobj(os.path.join( WORK_DIR, '_df_ctrl_{}_fold{}.pk'.format(PROBS_NAME, fold)), dfctrl)
-elif '256' in path_img:
-    dumpobj(os.path.join( WORK_DIR, '_emb_256_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_256_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_256_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-    dumpobj(os.path.join( WORK_DIR, '_df_trn_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-    dumpobj(os.path.join( WORK_DIR, '_df_val_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
-    dumpobj(os.path.join( WORK_DIR, '_df_tst_256_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
 else:
-    dumpobj(os.path.join( WORK_DIR, '_emb_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), rembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), vembls)
-    dumpobj(os.path.join( WORK_DIR, '_emb_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), tembls)    
-    dumpobj(os.path.join( WORK_DIR, '_df_trn_{}_fold{}.pk'.format(PROBS_NAME, fold)), train_dfall)
-    dumpobj(os.path.join( WORK_DIR, '_df_val_{}_fold{}.pk'.format(PROBS_NAME, fold)), validdf)
-    dumpobj(os.path.join( WORK_DIR, '_df_tst_{}_fold{}.pk'.format(PROBS_NAME, fold)), test_df)
+    dumpobj(os.path.join( WORK_DIR, '_emb_{}_trn_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), rembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_{}_val_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), vembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_{}_tst_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), tembls)    
+    dumpobj(os.path.join( WORK_DIR, '_df_{}_trn_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), trainfull)
+    dumpobj(os.path.join( WORK_DIR, '_df_{}_val_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), validdf)
+    dumpobj(os.path.join( WORK_DIR, '_df_{}_tst_{}_fold{}.pk'.format(OUTTYPE, PROBS_NAME, fold)), test_df)
