@@ -430,6 +430,16 @@ for epoch in range(EPOCHS):
     cutmix_prob_warmup = cutmix_prob if epoch>20 else cutmix_prob*(scheduler_warmup.get_lr()[0]/(lrmult*lr))
     logger.info('Cutmix probability {}'.format(cutmix_prob_warmup))
 
+    if epoch <124:
+        logger.info('Skip epoch {}'.format(epoch))
+        continue
+    elif epoch == 124:
+        logger.info('Load epoch {}'.format(epoch))
+        input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
+        model.load_state_dict(torch.load(input_model_file))
+        model.to(device)
+
+        
     for tt, (x, y) in enumerate(loader): 
         x = x.to(device)#.half()
         y = y.cuda()
