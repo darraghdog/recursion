@@ -141,7 +141,7 @@ class ImagesDS(D.Dataset):
         self.channels = channels
         #self.site = site
         self.mode = mode
-        self.transform = test_aug()
+        self.transform = test_aug1()
         self.img_dir = img_dir
         self.len = df.shape[0]
         logger.info('ImageDS Shape')
@@ -239,6 +239,19 @@ def test_aug(p=1.):
         Transpose(),
         NoOp(),
     ], p=p)
+
+
+def test_aug1(p=1.):
+    return Compose([
+        RandomRotate90(),
+        HorizontalFlip(),
+        VerticalFlip(),
+        Transpose(),
+        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
+                         rotate_limit=30, p=1.0, border_mode = cv2.BORDER_REPLICATE),
+        NoOp(),
+    ], p=p)
+
 
 def train_aug(p=1.):
     return Compose([
@@ -438,13 +451,12 @@ for epoch in range(EPOCHS-nbags, EPOCHS):
     logger.info('Train file {}'.format(input_model_file))
     # Save raw embeddings
 
-    for bag in range(40):
+    for bag in range(12):
         logger.info('Infer bag {}'.format(bag))
         embtst, clstst = prediction(model, tstloader)
         logger.info('Epoch {} score'.format(bag))
         logger.info((clstst[u2idx].argmax(1)==bestdf.sirna.values[u2idx]).mean())
         embctrl, clsctrl = prediction(model, ctrlloader)
-        embtst, clstst = prediction(model, tstloader) 
         embtrn, clstrn = prediction(model, trnloader)
         tstembls.append(embtst)
         trnembls.append(embtrn)
@@ -454,7 +466,7 @@ for epoch in range(EPOCHS-nbags, EPOCHS):
         ctrlclsls.append(clsctrl)
         clsbag = sum(tstclsls)/len(tstclsls)
         logger.info('Bag {} score'.format(bag))
-        logger.info((clstst[u2idx].argmax(1)==bestdf.sirna.values[u2idx]).mean())
+        logger.info((clsbag[u2idx].argmax(1)==bestdf.sirna.values[u2idx]).mean())
 
 if True:
     dumpobj(os.path.join( WORK_DIR, '_emb_site{}_ctrl_{}_fold{}.pk'.format(SITE, PROBS_NAME, fold)), ctrlembls)
