@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import datetime
 import optparse
 import os, sys
 import pandas as pd
@@ -14,6 +15,7 @@ import collections
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 from sklearn.metrics import pairwise_distances
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,12 +24,12 @@ parser = optparse.OptionParser()
 parser.add_option('-r', '--rootpath', action="store", dest="rootpath", help="root directory", default="/share/dhanley2/recursion/")
 parser.add_option('-i', '--imgpath', action="store", dest="imgpath", help="root directory", default="data/mount/512X512X6/")
 parser.add_option('-w', '--workpath', action="store", dest="workpath", help="Working path", default="densenetv1/weights")
-parser.add_option('-w', '--embpath', action="store", dest="embpath", help="Working path", default="mount/densenetv53/raw")
+parser.add_option('-v', '--embpath', action="store", dest="embpath", help="Working path", default="mount/densenetv53/raw")
 
 parser.add_option('-c', '--customwt', action="store", dest="customwt", help="Weight of annotator count in loss", default="1.0")
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-a', '--embname', action="store", dest="embname", help="Embeddings file name", default="_cls_site{}_{}_probs_512_fold5.pk")
-parser.add_option('-a', '--dfname', action="store", dest="embname", help="Embeddings file name", default="_df_site{}_{}_probs_512_fold5.pk")
+parser.add_option('-b', '--dfname', action="store", dest="dfname", help="Embeddings file name", default="_df_site{}_{}_probs_512_fold5.pk")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 
 options, args = parser.parse_args()
@@ -39,13 +41,6 @@ from utils import dumpobj, loadobj, GradualWarmupScheduler
 
 # Print info about environments
 logger = get_logger(options.logmsg, 'INFO') # noqa
-logger.info('Cuda set up : time {}'.format(datetime.datetime.now().time()))
-
-device=torch.device('cuda')
-logger.info('Device : {}'.format(torch.cuda.get_device_name(0)))
-logger.info('Cuda available : {}'.format(torch.cuda.is_available()))
-n_gpu = torch.cuda.device_count()
-logger.info('Cuda n_gpus : {}'.format(n_gpu ))
 
 
 logger.info('Load params : time {}'.format(datetime.datetime.now().time()))
@@ -61,7 +56,6 @@ WORK_DIR = os.path.join(ROOT, options.workpath)
 EMBNAME = options.embname
 PROBSNAME = options.probsname
 DFNAME = options.dfname
-nbags= int(options.nbags)
 
 def loadobj(file):
     with open(file, 'rb') as handle:
@@ -127,8 +121,10 @@ testdf  = pd.read_csv( os.path.join( path_data, 'test.csv'))
 folds = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 traindf = traindf.merge(folds, on = 'experiment')
 traindf = traindf.set_index('fold')
-bestdf = pd.read_csv( os.path.join( path_data, 'chk.csv'))
-
+bestdf = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
+logger.info(bestdf.shape)
+u2idx = bestdf.id_code.str.contains('U2OS')
+logger.info(u2idx.mean())
 
 '''
 Make Sub
@@ -138,25 +134,37 @@ dftrn = loadobj(os.path.join( emb_path, DFNAME.format('trn')))
 dftst = loadobj(os.path.join( emb_path, DFNAME.format('tst')))
 logger.info(dftrn.shape)
 logger.info(dftst.shape)
-embtrn = loadobj(os.path.join( emb_path, EMBNAME.format('trn')))
 embtst = loadobj(os.path.join( emb_path, EMBNAME.format('tst')))
+embtstsc = loadobj(os.path.join( emb_path, EMBNAME.format('tst').replace('emb_', 'cls_')))
+
+scores = [(e[u2idx].argmax(1)==bestdf.sirna.values[u2idx]).mean() for e in embtstsc]
+logger.info('Val Scores')
+logger.info(scores)
+logger.info([s>0.86 for s in scores])
+
+embtrn = loadobj(os.path.join( emb_path, EMBNAME.format('trn')))
+embtrn = [e[:,:1108] for (e, s) in zip(embtrn, scores) if s> 0.87  ]
+embtst = [e[:,:1108] for (e, s) in zip(embtst, scores) if s> 0.87  ]
+logger.info('Kept {} epochs'.format(len(embtrn)))
 embtrn = sum(embtrn)/len(embtrn)
 embtst = sum(embtst)/len(embtst)
 logger.info(embtrn.shape)
-logger.info(embtrn.shape)
+logger.info(embtst.shape)
 ttsexp = expshotdelta_v5(embtst, embtrn, dftrn.sirna, dftrn.experiment, dftst.experiment)
-ttsexp = pd.DataFrame(ttsexp)
+ttsexp = pd.DataFrame(ttsexp.astype(np.float32))
 ttsexp['id_code'] = testdf['id_code'].values
-ttsexp.to_csv(os.path.join( WORK_DIR, PROBSNAME),index = False)
+OUTFILE = os.path.join( WORK_DIR, PROBSNAME)
+logger.info('Write out {}'.format(OUTFILE))
+ttsexp.to_csv(OUTFILE,index = False, compression = 'gzip')
 
 nsamp = 10000
-eqpred_cossim = (ttsexp.values.argmax(1)[:nsamp]==bestdf['sirna'][:nsamp]).astype(np.int8)
+eqpred_cossim = (ttsexp.values.argmax(1)[:nsamp]==bestdf['sirna'][:nsamp].values).astype(np.int8)
 tstpreddf = pd.DataFrame({'exptype':testdf['experiment'][:nsamp].apply(lambda x: x.split('-')[0]), 
               'eqpred_cossim':eqpred_cossim[:nsamp],
               'experiment':testdf['experiment'][:nsamp]})
-print(eqpred_cossim.mean())
-print(tstpreddf.groupby('exptype')['eqpred_cossim'].mean())
-print(tstpreddf.groupby('experiment')['eqpred_cossim'].mean())
+logger.info(eqpred_cossim.mean())
+logger.info(tstpreddf.groupby('exptype')['eqpred_cossim'].mean())
+logger.info(tstpreddf.groupby('experiment')['eqpred_cossim'].mean())
 
 
 # Run : python post_processing_leak.py ttsexp_mask_v31_cosv5_fold5.csv ttsexp_mask_v31_cosv5_fold5_ddlleak.csv 
