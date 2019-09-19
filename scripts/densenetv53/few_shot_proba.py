@@ -157,14 +157,6 @@ OUTFILE = os.path.join( WORK_DIR, PROBSNAME)
 logger.info('Write out {}'.format(OUTFILE))
 ttsexp.to_csv(OUTFILE,index = False, compression = 'gzip')
 
-nsamp = 10000
-eqpred_cossim = (ttsexp.values.argmax(1)[:nsamp]==bestdf['sirna'][:nsamp].values).astype(np.int8)
-tstpreddf = pd.DataFrame({'exptype':testdf['experiment'][:nsamp].apply(lambda x: x.split('-')[0]), 
-              'eqpred_cossim':eqpred_cossim[:nsamp],
-              'experiment':testdf['experiment'][:nsamp]})
-logger.info(eqpred_cossim.mean())
-logger.info(tstpreddf.groupby('exptype')['eqpred_cossim'].mean())
-logger.info(tstpreddf.groupby('experiment')['eqpred_cossim'].mean())
 
 
 # Run : python post_processing_leak.py ttsexp_mask_v31_cosv5_fold5.csv ttsexp_mask_v31_cosv5_fold5_ddlleak.csv 

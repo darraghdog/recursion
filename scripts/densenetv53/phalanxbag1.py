@@ -451,7 +451,7 @@ for epoch in range(EPOCHS-nbags, EPOCHS):
     logger.info('Train file {}'.format(input_model_file))
     # Save raw embeddings
 
-    for bag in range(12):
+    for bag in range(8):
         logger.info('Infer bag {}'.format(bag))
         embtst, clstst = prediction(model, tstloader)
         logger.info('Epoch {} score'.format(bag))

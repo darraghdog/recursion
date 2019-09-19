@@ -141,7 +141,7 @@ class ImagesDS(D.Dataset):
         self.channels = channels
         #self.site = site
         self.mode = mode
-        self.transform = test_aug1()
+        self.transform = train_aug() # test_aug1()
         self.img_dir = img_dir
         self.len = df.shape[0]
         logger.info('ImageDS Shape')
@@ -468,6 +468,9 @@ for epoch in range(EPOCHS-nbags, EPOCHS):
         #ctrlclsls.append(clsctrl)
         clsbag = sum(tstclsls)/len(tstclsls)
         logger.info('Bag {} score'.format(bag))
+        logger.info((clsbag.argmax(1)==bestdf.sirna.values[u2idx]).mean())
+        logger.info('Sigmoid Bag {} score'.format(bag))
+        clsbag = sum([torch.sigmoid( torch.tensor(c) ).numpy() for c in tstclsls])/len(tstclsls)
         logger.info((clsbag.argmax(1)==bestdf.sirna.values[u2idx]).mean())
 
 if False:
