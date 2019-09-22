@@ -300,13 +300,10 @@ def prediction(model, loader):
     probs = np.concatenate(probs, 0)
     return preds, probs
 
-logger.info('Create image loader : time {}'.format(datetime.datetime.now().time()))
+logger.info('Create image loader'.format(datetime.datetime.now().time()))
 if not os.path.exists(WORK_DIR):
     os.mkdir(WORK_DIR)
-    
-logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
-#transform = train_aug()
 
 
 logger.info('Load Dataframes')
@@ -319,10 +316,8 @@ train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
 huvec18_df['mode'] = 'test'
 logger.info('Pseudo')
-sub = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
-pseudo = test_df.copy()
-pseudo['sirna'] = sub['sirna'].values
-
+pseudo = pd.read_csv( os.path.join( path_data, 'tmp1.csv'))
+pseudo['sirna'] = pseudo['lbl'].values
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -351,29 +346,18 @@ logger.info(train_dfall['fold'].value_counts())
 traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
 if validdf.shape[0]==0:
-    validdf = pseudo[pseudo.experiment.str.contains('U2')].copy()
+    validdf = pseudo[pseudo.unique_count>1].reset_index(drop=True)
 y_val = validdf.sirna.values
 
-#logger.info('******** Checking Input Data Shapes - Part 1 **********')
-#logger.info(validdf.shape)
-#logger.info(test_df.shape)
-#logger.info(y_val.shape)
 
 # Add the controls
-#train_ctrl.sirna = 1108
-#test_ctrl.sirna = 1108
-trainfull = pd.concat([traindf, 
-                       pseudo,
-                       train_ctrl.drop('well_type', 1), 
-                       train_ctrl.drop('well_type', 1),
-                       test_ctrl.drop('well_type', 1),
+trainfull = pd.concat([traindf, \
+                       pseudo[pseudo.unique_count==1].reset_index(drop=True), \
+                       train_ctrl.drop('well_type', 1), \
+                       train_ctrl.drop('well_type', 1), \
+                       test_ctrl.drop('well_type', 1), \
                        test_ctrl.drop('well_type', 1)], 0)
 classes = trainfull.sirna.max() + 1
-
-#trainfull = add_sites(trainfull)#.iloc[:300]
-#validdf = add_sites(validdf)#.iloc[:300]
-#test_df = add_sites(test_df)#.iloc[:300]
-#y_val = y_val [:150]      
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_img)
@@ -441,6 +425,12 @@ for epoch in range(EPOCHS):
 
 
     scheduler_cosine.step()
+    if epoch < 6:
+        if epoch <5:
+            continue
+        logger.info('Load model')
+        input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(5)+'.bin'  )
+        model.load_state_dict(torch.load(input_model_file))
     #optimizer = torch.optim.Adam(model.parameters(), lr=scheduler_cosine.get_lr()[0])
     tloss = 0
     model.train()
