@@ -227,9 +227,9 @@ def test_aug(p=1.):
         HorizontalFlip(),
         VerticalFlip(),
         Transpose(),
-        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
-                         rotate_limit=45, p=1.0, border_mode = cv2.BORDER_REPLICATE),
         NoOp(),
+        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
+                         rotate_limit=45, p=0.5, border_mode = cv2.BORDER_REPLICATE),
     ], p=p)
 
 def train_aug(p=1.):
@@ -279,7 +279,7 @@ class DensNet(nn.Module):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out = self.classifier(out)
+        out1 = self.classifier(out)
         return  out
 
 def single_pred(dffold, probs):
@@ -331,9 +331,6 @@ test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
 huvec18_df['mode'] = 'test'
-bestdf = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
-
-
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -378,8 +375,6 @@ classes = trainfull.sirna.max() + 1
 logger.info('Limit to {}'.format(EXPERIMENTFILTER))
 trainfull = trainfull[trainfull.experiment.str.contains(EXPERIMENTFILTER)]
 validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER)]
-subidx = test_df.experiment.str.contains(EXPERIMENTFILTER)
-bestdf = bestdf [subidx]
 test_df = test_df[test_df.experiment.str.contains(EXPERIMENTFILTER)]
 train_dfall = train_dfall[train_dfall.experiment.str.contains(EXPERIMENTFILTER)]
 
@@ -419,7 +414,7 @@ cembls = []
 vsshotls = []
 tsshotls = []
 
-for epoch in range(EPOCHS-30, EPOCHS):
+for epoch in range(EPOCHS-3, EPOCHS):
     input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'_{}.bin'.format(EXPERIMENTFILTER)  )
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
@@ -430,28 +425,27 @@ for epoch in range(EPOCHS-30, EPOCHS):
         param.requires_grad=False
     logger.info('Train file {}'.format(input_model_file))
     # Save raw embeddings
+    for ii in range(5):
+        logger.info('Step {}'.format(ii))
+        if CONTROL:
+            embctrl = prediction(model, cloader)
+            cembls.append(embctrl)
+        else:
+            embtst = prediction(model, tloader)
+            embtrn = prediction(model, rloader)
+            if fold!=5: embval = prediction(model, vloader)
+            tembls.append(embtst)
+            rembls.append(embtrn)
+            if fold!=5: vembls.append(embval)
 
-    bag = 1
-    if CONTROL:
-        embctrl = prediction(model, cloader)
-        cembls.append(embctrl)
-    else:
-        embtst = prediction(model, tloader)
-        embtrn = prediction(model, rloader)
-        if fold!=5: embval = prediction(model, vloader)
-        tembls.append(embtst)
-        rembls.append(embtrn)
-        if fold!=5: vembls.append(embval)
-        logger.info('Epoch {} score'.format(bag))
-        logger.info((embtst.argmax(1)==bestdf.sirna.values).mean())
-        clsbag = sum(tembls)/len(tembls)
-        logger.info('Bag {} score'.format(bag))
-        logger.info((clsbag.argmax(1)==bestdf.sirna.values).mean())
-'''
+tembls = sum(tembls)/len(tembls)
+rembls = sum(rembls)/len(rembls)
+if fold!=5: vembls = sum(vembls)/len(vembls)
+
+
 dumpobj(os.path.join( WORK_DIR, '_emb_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), rembls)
 if fold!=5: dumpobj(os.path.join( WORK_DIR, '_emb_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER,PROBS_NAME, fold)), vembls)
 dumpobj(os.path.join( WORK_DIR, '_emb_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), tembls)    
 dumpobj(os.path.join( WORK_DIR, '_df_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), train_dfall)
 if fold!=5: dumpobj(os.path.join( WORK_DIR, '_df_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), validdf)
 dumpobj(os.path.join( WORK_DIR, '_df_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER,  PROBS_NAME, fold)), test_df)
-'''

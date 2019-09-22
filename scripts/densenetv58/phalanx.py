@@ -62,7 +62,9 @@ parser.add_option('-a', '--beta', action="store", dest="beta", help="Cutmix beta
 parser.add_option('-n', '--probsname', action="store", dest="probsname", help="probs file name", default="probs_256")
 parser.add_option('-g', '--logmsg', action="store", dest="logmsg", help="root directory", default="Recursion-pytorch")
 parser.add_option('-j', '--precision', action="store", dest="precision", help="root directory", default="half")
-parser.add_option('-z', '--expfilter', action="store", dest="expfilter", help="filter experiment", default="10")
+parser.add_option('-z', '--emb', action="store", dest="emb", help="Return Embedding", default="1")
+parser.add_option('-y', '--site', action="store", dest="site", help="Site images set", default="0")
+
 
 options, args = parser.parse_args()
 package_dir = options.rootpath
@@ -90,8 +92,10 @@ for (k,v) in options.__dict__.items():
 cutmix_prob = float(options.cutmix_prob)
 beta = float(options.beta)
 SEED = int(options.seed)
+EMB = int(options.emb)
+SITE = int(options.site)
+
 EPOCHS = int(options.epochs)
-EXPERIMENTFILTER=options.expfilter
 lr=float(options.lr)
 lrmult=int(options.lrmult)
 batch_size = int(options.batchsize)
@@ -164,6 +168,12 @@ class ImagesDS(D.Dataset):
         return '/'.join([self.img_dir,mode,experiment,f'Plate{plate}',f'{well}_s{site}_w.pk'])
     
     def __getitem__(self, index):
+        if SITE != 0:
+            pathnp1 = self._get_np_path(index, site = 1)
+            pathnp2 = self._get_np_path(index, site = 2)
+        else:
+            pathnp1 = self._get_np_path(index, site = SITE)
+            pathnp2 = self._get_np_path(index, site = SITE)
         pathnp1 = self._get_np_path(index, site = 1)
         pathnp2 = self._get_np_path(index, site = 2)
         experiment, plate, _ = pathnp1.split('/')[-3:]
@@ -227,10 +237,13 @@ def test_aug(p=1.):
         HorizontalFlip(),
         VerticalFlip(),
         Transpose(),
+        NoOp(),
         ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1,
                          rotate_limit=45, p=1.0, border_mode = cv2.BORDER_REPLICATE),
-        NoOp(),
     ], p=p)
+
+
+
 
 def train_aug(p=1.):
     return Compose([
@@ -279,7 +292,7 @@ class DensNet(nn.Module):
         features = self.features(x)
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out = self.classifier(out)
+        # outcls = self.classifier(out)
         return  out
 
 def single_pred(dffold, probs):
@@ -305,17 +318,17 @@ def single_pred(dffold, probs):
 
 @torch.no_grad()
 def prediction(model, loader):
-    preds = np.empty(0)
-    probs = []
+    embls = []
+    clsls = []
     tlen = len(loader)
     for t, (x, _) in enumerate(loader):
         if t%100==0:
             logger.info('Predict step {} of {}'.format(t, tlen))
         x = x.to(device)#.half()
-        output = model(x)#.float()
-        probs.append(output.cpu().numpy())
-    probs = np.concatenate(probs, 0)
-    return probs
+        emb = model(x)#.float()
+        embls.append(emb.cpu().numpy())
+    embmat = np.concatenate(embls, 0)
+    return embmat
 
 logger.info('Augmentation set up : time {}'.format(datetime.datetime.now().time()))
 
@@ -331,9 +344,6 @@ test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
 huvec18_df['mode'] = 'test'
-bestdf = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
-
-
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -368,25 +378,18 @@ y_val = validdf.sirna.values
 # Add the controls
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
+
 trainfull = pd.concat([traindf, 
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1)], 0)
+
 classes = trainfull.sirna.max() + 1
-
-logger.info('Limit to {}'.format(EXPERIMENTFILTER))
-trainfull = trainfull[trainfull.experiment.str.contains(EXPERIMENTFILTER)]
-validdf = validdf[validdf.experiment.str.contains(EXPERIMENTFILTER)]
-subidx = test_df.experiment.str.contains(EXPERIMENTFILTER)
-bestdf = bestdf [subidx]
-test_df = test_df[test_df.experiment.str.contains(EXPERIMENTFILTER)]
-train_dfall = train_dfall[train_dfall.experiment.str.contains(EXPERIMENTFILTER)]
-
 
 # ds = ImagesDS(traindf, path_data)
 ds = ImagesDS(trainfull, path_img)
-ds_trn = ImagesDS(train_dfall, path_img)
+ds_trn = ImagesDS(traindf, path_img)
 ds_val = ImagesDS(validdf, path_img, mode='val')
 ds_test = ImagesDS(test_df, path_img, mode='test')
 
@@ -405,22 +408,24 @@ torch.backends.cudnn.deterministic = True
 model = DensNet(num_classes=classes)
 
 loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=16)
-rloader = D.DataLoader(ds_trn, batch_size=batch_size*4, shuffle=False, num_workers=16)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
-cloader = D.DataLoader(ds_ctrl, batch_size=batch_size*4, shuffle=False, num_workers=32)
+trnloader = D.DataLoader(ds_trn, batch_size=batch_size*4, shuffle=False, num_workers=16)
+valloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
+tstloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
+ctrlloader = D.DataLoader(ds_ctrl, batch_size=batch_size*4, shuffle=False, num_workers=32)
 
 logger.info('Start training')
-tlen = len(loader)
-rembls = []
-vembls = []
-tembls = []
-cembls = []
-vsshotls = []
-tsshotls = []
+trnembls = []
+tstembls = []
+ctrlembls = []
+trnclsls = []
+tstclsls = []
+ctrlclsls = []
 
-for epoch in range(EPOCHS-30, EPOCHS):
-    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'_{}.bin'.format(EXPERIMENTFILTER)  )
+
+
+
+for epoch in range(EPOCHS-nbags, EPOCHS):
+    input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'.bin'  )
     logger.info(input_model_file)
     model = DensNet(num_classes=classes)
     model.to(device)
@@ -430,28 +435,29 @@ for epoch in range(EPOCHS-30, EPOCHS):
         param.requires_grad=False
     logger.info('Train file {}'.format(input_model_file))
     # Save raw embeddings
+    for ii in range(3):
+        logger.info('Predict epoch {} round {}'.format(epoch, ii))
+        embctrl = prediction(model, ctrlloader)
+        embtst = prediction(model, tstloader)
+        embtrn = prediction(model, trnloader)
+        tstembls.append(embtst)
+        trnembls.append(embtrn)
+        ctrlembls.append(embctrl)
+tstembls = sum(tstembls)/len(tstembls)
+trnembls = sum(trnembls)/len(trnembls)
+ctrlembls = sum(ctrlembls)/len(ctrlembls)
+#tstclsls.append(clstst)
+#trnclsls.append(clstrn)
+#ctrlclsls.append(clsctrl)
+    
 
-    bag = 1
-    if CONTROL:
-        embctrl = prediction(model, cloader)
-        cembls.append(embctrl)
-    else:
-        embtst = prediction(model, tloader)
-        embtrn = prediction(model, rloader)
-        if fold!=5: embval = prediction(model, vloader)
-        tembls.append(embtst)
-        rembls.append(embtrn)
-        if fold!=5: vembls.append(embval)
-        logger.info('Epoch {} score'.format(bag))
-        logger.info((embtst.argmax(1)==bestdf.sirna.values).mean())
-        clsbag = sum(tembls)/len(tembls)
-        logger.info('Bag {} score'.format(bag))
-        logger.info((clsbag.argmax(1)==bestdf.sirna.values).mean())
-'''
-dumpobj(os.path.join( WORK_DIR, '_emb_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), rembls)
-if fold!=5: dumpobj(os.path.join( WORK_DIR, '_emb_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER,PROBS_NAME, fold)), vembls)
-dumpobj(os.path.join( WORK_DIR, '_emb_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), tembls)    
-dumpobj(os.path.join( WORK_DIR, '_df_{}_trn_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), train_dfall)
-if fold!=5: dumpobj(os.path.join( WORK_DIR, '_df_{}_val_{}_fold{}.pk'.format(EXPERIMENTFILTER, PROBS_NAME, fold)), validdf)
-dumpobj(os.path.join( WORK_DIR, '_df_{}_tst_{}_fold{}.pk'.format(EXPERIMENTFILTER,  PROBS_NAME, fold)), test_df)
-'''
+if True:
+    dumpobj(os.path.join( WORK_DIR, '_emb_site{}_ctrl_{}_fold{}.pk'.format(SITE, PROBS_NAME, fold)), ctrlembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_site{}_trn_{}_fold{}.pk'.format(SITE, PROBS_NAME, fold)), trnembls)
+    dumpobj(os.path.join( WORK_DIR, '_emb_site{}_tst_{}_fold{}.pk'.format(SITE,  PROBS_NAME, fold)), tstembls)
+    #dumpobj(os.path.join( WORK_DIR, '_cls_site{}_ctrl_{}_fold{}.pk'.format(SITE, PROBS_NAME, fold)), ctrlclsls)
+    #dumpobj(os.path.join( WORK_DIR, '_cls_site{}_trn_{}_fold{}.pk'.format(SITE,  PROBS_NAME, fold)), trnclsls)
+    #dumpobj(os.path.join( WORK_DIR, '_cls_site{}_tst_{}_fold{}.pk'.format(SITE,  PROBS_NAME, fold)), tstclsls)
+    dumpobj(os.path.join( WORK_DIR, '_df_site{}_trn_{}_fold{}.pk'.format(SITE,  PROBS_NAME, fold)), traindf)
+    dumpobj(os.path.join( WORK_DIR, '_df_site{}_tst_{}_fold{}.pk'.format(SITE,  PROBS_NAME, fold)), test_df)
+    dumpobj(os.path.join( WORK_DIR, '_df_site{}_ctrl_{}_fold{}.pk'.format(SITE, PROBS_NAME, fold)), dfctrl)

@@ -330,6 +330,10 @@ test_ctrl = pd.read_csv(os.path.join(path_data, 'test_controls.csv'))
 train_dfall['mode'] = train_ctrl['mode'] = 'train'
 test_df['mode'] = test_ctrl['mode'] = 'test'
 huvec18_df['mode'] = 'test'
+sub = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
+pseudo = test_df.copy()
+pseudo['sirna'] = sub['sirna'].values
+
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -358,7 +362,7 @@ logger.info(train_dfall['fold'].value_counts())
 traindf = train_dfall[train_dfall['fold']!=fold]
 validdf = train_dfall[train_dfall['fold']==fold]
 if validdf.shape[0]==0:
-    validdf = huvec18_df
+    validdf = pseudo.copy()
 y_val = validdf.sirna.values
 
 
@@ -366,6 +370,7 @@ y_val = validdf.sirna.values
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
 trainfull = pd.concat([traindf, 
+                       pseudo,
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1),
@@ -428,7 +433,7 @@ for epoch in range(EPOCHS-10, EPOCHS):
     model = DensNet(num_classes=classes)
     model.to(device)
     model.load_state_dict(torch.load(input_model_file))
-    if fold != 5: evalmodel(model, epoch)
+    evalmodel(model, epoch)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
@@ -502,7 +507,7 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
     outmsg = 'Epoch {} -> Train Loss: {:.4f}, ACC: {:.2f}%'.format(epoch+1, tloss/tlen, acc[0]/tlen)
     logger.info('{} : time {}'.format(outmsg, datetime.datetime.now().time()))
 
-    if fold != 5: evalmodel(model, epoch)
+    evalmodel(model, epoch)
 
 '''
 dumpobj(os.path.join( WORK_DIR, 'val_{}_fold{}.pk'.format(PROBS_NAME, fold)), probsls)

@@ -216,6 +216,8 @@ def test_aug(p=1.):
         HorizontalFlip(),
         VerticalFlip(),
         Transpose(),
+        #ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2,
+        #                 rotate_limit=45, p=0.8, border_mode = cv2.BORDER_REPLICATE),
         NoOp(),
     ], p=p)
 
@@ -313,7 +315,7 @@ def evalmodel(model, epoch):
     outmsg = 'Epoch {} -> Fold {} -> Accuracy Ep Max: {:.4f}'.format(\
                     epoch+1, fold, matchesmax/predsmax.shape[0])
     logger.info('{}'.format(outmsg))
-
+    return probs
 
 
 
@@ -340,6 +342,10 @@ validdf = test_df.copy()
 validdf['sirna'] = valdf.sirna.values
 logger.info(['VALIDSHAPE ']*20)
 logger.info(validdf.shape)
+sub = pd.read_csv( os.path.join( path_data, 'tmp.csv'))
+pseudo = test_df.copy()
+pseudo['sirna'] = sub['sirna'].values
+
 
 folddf  = pd.read_csv( os.path.join( path_data, 'folds.csv'))
 train_dfall = pd.merge(train_dfall, folddf, on = 'experiment' )
@@ -376,6 +382,7 @@ y_val = validdf.sirna.values
 #train_ctrl.sirna = 1108
 #test_ctrl.sirna = 1108
 trainfull = pd.concat([traindf, 
+                       pseudo,
                        train_ctrl.drop('well_type', 1), 
                        train_ctrl.drop('well_type', 1),
                        test_ctrl.drop('well_type', 1),
@@ -425,11 +432,11 @@ torch.backends.cudnn.deterministic = True
 
 
 
-loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=5)
-vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=5)
-tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=5)
-VALIDATE=True
-for epoch in range(EPOCHS-30, EPOCHS):
+loader = D.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=16)
+vloader = D.DataLoader(ds_val, batch_size=batch_size*4, shuffle=False, num_workers=16)
+tloader = D.DataLoader(ds_test, batch_size=batch_size*4, shuffle=False, num_workers=16)
+VALIDATE=False
+for epoch in range(EPOCHS-10, EPOCHS):
     if VALIDATE: 
         model = DensNet(num_classes=classes)
         model.to(device)
@@ -439,7 +446,7 @@ for epoch in range(EPOCHS-30, EPOCHS):
     model = DensNet(num_classes=classes)
     model.to(device)
     model.load_state_dict(torch.load(input_model_file))
-    evalmodel(model, epoch)
+    _ = evalmodel(model, epoch)
 
 criterion = nn.BCEWithLogitsLoss()
 criterion = nn.CrossEntropyLoss()
@@ -466,8 +473,14 @@ for epoch in range(EPOCHS, EPOCHS+XTRASTEPS):
         input_model_file = os.path.join( WORK_DIR, WEIGHTS_NAME.replace('.bin', '')+str(epoch)+'_{}.bin'.format(EXPERIMENTFILTER)  )
         model.load_state_dict(torch.load(input_model_file))
         model.eval()
-        evalmodel(model, epoch)
+        probsls.append(evalmodel(model, epoch))
+        predsmax = np.argmax(( sum(probsls)  )[:,:1108], 1)
+        matchesmax = (predsmax.flatten().astype(np.int32) == y_val.flatten().astype(np.int32)).sum()
+        outmsg = 'Epoch {} -> Fold {} -> Accuracy Bag Argmax: {:.4f}'.format(\
+                    epoch+1, fold, matchesmax/predsmax.shape[0])
+        logger.info('{}'.format(outmsg))
         continue
+
     tloss = 0
     model.train()
     acc = np.zeros(1)
